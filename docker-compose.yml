@@ -1,0 +1,60 @@
+# Local development infrastructure for ElaMachan.
+# Brings up Postgres + Redis + Meilisearch. Application services (backend/frontend)
+# run on the host during development. See README.md for the quickstart.
+#
+# Values are read from .env (copy from .env.example). Defaults are dev-only and safe
+# to commit — real secrets never live here (see docs/secrets.md).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: elamachan-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-elamachan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-elamachan}
+      POSTGRES_DB: ${POSTGRES_DB:-elamachan}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-elamachan} -d ${POSTGRES_DB:-elamachan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: elamachan-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.8
+    container_name: elamachan-meilisearch
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-masterKey_dev_only_change_me}
+      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILI_PORT:-7700}:7700"
+    volumes:
+      - meilidata:/meili_data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--spider", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:
+  meilidata:
