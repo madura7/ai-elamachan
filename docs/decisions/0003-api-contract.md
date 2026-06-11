@@ -16,7 +16,8 @@ and every data-fetching call, so it is locked before feature code.
 **REST over HTTP with JSON, described by a single OpenAPI 3.1 spec that is the
 source of truth.**
 
-- The spec lives in the repo at `api/openapi.yaml` (or `backend/api/openapi.yaml`).
+- The spec lives in the repo at the canonical path `api/openapi.yaml` (repo
+  root, shared by both frontend and backend — not nested under `backend/`).
 - Frontend generates typed TS client/types from the spec (e.g.
   `openapi-typescript` / `orval`) — no hand-written request types drifting from
   the server.
