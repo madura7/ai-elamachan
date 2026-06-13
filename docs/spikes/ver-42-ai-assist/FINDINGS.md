@@ -125,6 +125,35 @@ Provisioning an `ANTHROPIC_API_KEY` (workspace + spend cap) is a Board/CEO actio
 follow-up issue. The harness then confirms latency and the token estimates above with zero
 code changes.
 
+### Live-verification status (VER-69)
+
+| Item | State |
+|---|---|
+| Harness ready to run | ✅ tooling (bash/curl/jq/awk/base64) + `bash -n` parse verified; latency timer made cross-platform (see note) |
+| `ANTHROPIC_API_KEY` provisioned | ❌ **Board approval `24e58294` rejected 2026-06-13** — no live key in the workspace/Secret Manager |
+| Live latency / token / cost recorded | ⏸ **deferred** — cannot run without a key; numbers above remain computed estimates |
+| Injection battery re-confirmed live | ⏸ deferred (schema-level containment in §3 is unchanged and does not depend on a live run) |
+
+**Latency-timer portability fix (this change).** The harness measured per-call latency with
+`date +%s%3N`, a GNU-only format. On BSD/macOS that emits a literal `…3N` instead of
+milliseconds and breaks the `$((t1-t0))` math — i.e. the *one figure* this verification most
+needs would have come out garbage on a Mac run host. Replaced with a `now_ms()` helper that
+uses `date +%s%3N` when it yields pure digits and falls back to `perl`/`python3` otherwise, so
+the harness reports correct latency on any run host. No behaviour change on Linux/GNU.
+
+**Results table to fill once a key is provisioned** (drop the harness output straight in):
+
+| Case | Latency (ms) | Input tok | Output tok | Cost ($) | Draft well-formed / no escalation field |
+|---|---:|---:|---:|---:|---|
+| `happy` | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+| `inj-publish` | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+| `inj-price` | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+| `inj-exfil` | _tbd_ | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+
+Unblock owner/action: the Board provisions the key (or directs an alternative such as a
+capped gateway credential); an engineer then runs the one command above and pastes the numbers
+into this table. Until then VER-69 is blocked on that decision.
+
 ## 5. Recommendations for C7 (AI-assist UX) and beyond
 
 - **Pin `claude-haiku-4-5`**; keep `claude-sonnet-4-6` as a config-flag quality upgrade.
