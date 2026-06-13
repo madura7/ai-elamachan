@@ -1,0 +1,28 @@
+# Secrets — never commit real env files (see docs/secrets.md)
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Backend (Go)
+/backend/bin/
+/backend/tmp/
+*.test
+*.out
+
+# Frontend (Node / Next.js)
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local data volumes
+/.data/
