@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -387,5 +388,150 @@ func TestHandler_InjectionRegression(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- Review round-1 fixes -------------------------------------------------
+
+// countingSpend records how many times the spend guard was consulted.
+type countingSpend struct{ charged int }
+
+func (c *countingSpend) Allow() bool { c.charged++; return true }
+
+// TestHandler_SpendChargedOnlyOnBillableCall verifies a rejected request (no
+// model call) does not consume a spend slot, while a valid request charges once.
+func TestHandler_SpendChargedOnlyOnBillableCall(t *testing.T) {
+	ft := &fakeTransport{toolInput: validDraftInput()}
+	cs := &countingSpend{}
+	h := NewHandler(fakeClient(t, ft), Options{Spend: cs})
+
+	post := func(keywords string) int {
+		ct, body := multipartBody(t, map[string]string{"keywords": keywords}, "", "", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/listings/ai-draft", body)
+		req.Header.Set("Content-Type", ct)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	// Oversize keywords -> 413, must NOT charge spend.
+	if code := post(strings.Repeat("x", maxKeywordBytes+1)); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize status = %d, want 413", code)
+	}
+	if cs.charged != 0 {
+		t.Fatalf("spend charged %d times on a rejected request, want 0", cs.charged)
+	}
+
+	// Valid request -> 200, charges exactly once.
+	if code := post("Samsung Galaxy A54"); code != http.StatusOK {
+		t.Fatalf("valid status = %d, want 200", code)
+	}
+	if cs.charged != 1 {
+		t.Fatalf("spend charged %d times on a billable request, want 1", cs.charged)
+	}
+}
+
+// TestSpendCap_WindowedRefill verifies the cap trips within a window and refills
+// in the next one (not a lifetime counter).
+func TestSpendCap_WindowedRefill(t *testing.T) {
+	cur := time.Unix(1_000_000, 0)
+	sc := &spendCap{maxCalls: 1, window: time.Minute, now: func() time.Time { return cur }}
+
+	if !sc.Allow() {
+		t.Fatal("first call in window should be allowed")
+	}
+	if sc.Allow() {
+		t.Fatal("second call in same window should be capped")
+	}
+	cur = cur.Add(time.Minute) // advance past the window
+	if !sc.Allow() {
+		t.Fatal("cap should refill in the next window")
+	}
+}
+
+func TestNewSpendCap_DefaultsAndDisable(t *testing.T) {
+	// maxCalls <= 0 disables the cap entirely.
+	if !NewSpendCap(0, 0).Allow() || !NewSpendCap(-5, 0).Allow() {
+		t.Error("non-positive maxCalls should disable the cap")
+	}
+	// window <= 0 falls back to the default window (no panic, allows up to cap).
+	sc := NewSpendCap(2, 0)
+	if !sc.Allow() || !sc.Allow() {
+		t.Error("first two calls should be allowed")
+	}
+	if sc.Allow() {
+		t.Error("third call should be capped")
+	}
+}
+
+// TestHandler_RateLimitKeysOnIPNotHeader verifies the default key ignores a
+// client-supplied X-User-ID: two requests from the same IP with different
+// headers share one bucket (fix for the rate-limit bypass).
+func TestHandler_RateLimitKeysOnIPNotHeader(t *testing.T) {
+	ft := &fakeTransport{toolInput: validDraftInput()}
+	h := NewHandler(fakeClient(t, ft), Options{Limiter: NewWindowLimiter(1, defaultWindow)})
+
+	do := func(uid string) int {
+		ct, body := multipartBody(t, map[string]string{"keywords": "phone"}, "", "", nil)
+		req := httptest.NewRequest(http.MethodPost, "/api/listings/ai-draft", body)
+		req.Header.Set("Content-Type", ct)
+		req.Header.Set("X-User-ID", uid)
+		req.RemoteAddr = "203.0.113.7:5555"
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	if code := do("alice"); code != http.StatusOK {
+		t.Fatalf("first call status = %d, want 200", code)
+	}
+	// Different X-User-ID, same IP — must still hit the limit.
+	if code := do("bob"); code != http.StatusTooManyRequests {
+		t.Fatalf("second call (rotated header) status = %d, want 429", code)
+	}
+}
+
+// TestHandler_ImageDraftSuccess exercises the image path: a declared+sniffed PNG
+// is accepted and forwarded with its detected media type.
+func TestHandler_ImageDraftSuccess(t *testing.T) {
+	ft := &fakeTransport{toolInput: validDraftInput()}
+	h := NewHandler(fakeClient(t, ft), Options{})
+
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte("d"), 64)...)
+	ct, body := multipartBody(t, map[string]string{"keywords": "sofa"}, "image", "image/png", png)
+	req := httptest.NewRequest(http.MethodPost, "/api/listings/ai-draft", body)
+	req.Header.Set("Content-Type", ct)
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if !bytes.Contains(ft.lastBody, []byte("image/png")) {
+		t.Error("request to the model should carry the detected image/png media type")
+	}
+}
+
+// TestHandler_SpoofedImageTypeRejected verifies content sniffing rejects a
+// non-image whose declared multipart type claims to be an image.
+func TestHandler_SpoofedImageTypeRejected(t *testing.T) {
+	ft := &fakeTransport{toolInput: validDraftInput()}
+	h := NewHandler(fakeClient(t, ft), Options{})
+
+	// Declared image/png but the bytes are plainly not an image.
+	notImage := []byte("this is definitely not a PNG file, just text")
+	ct, body := multipartBody(t, map[string]string{"keywords": "x"}, "image", "image/png", notImage)
+	req := httptest.NewRequest(http.MethodPost, "/api/listings/ai-draft", body)
+	req.Header.Set("Content-Type", ct)
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415 (sniffed non-image)", rr.Code)
+	}
+	if ft.lastBody != nil {
+		t.Error("spoofed image must be rejected before any model call")
 	}
 }

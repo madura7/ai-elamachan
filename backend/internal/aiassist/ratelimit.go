@@ -53,20 +53,34 @@ func (l *windowLimiter) Allow(key string) bool {
 	return true
 }
 
-// spendCap is a simple in-process SpendGuard that allows a bounded number of
-// model calls before tripping. It is a hook point: production should replace it
-// with a guard that reads the real workspace spend ledger / Secret Manager
-// budget. maxCalls <= 0 means "no cap".
+// defaultSpendWindow is the refill window for the default workspace spend cap.
+// The cap is "at most N billable model calls per window"; it refills each window
+// rather than being a lifetime counter, so a burst of usage cannot permanently
+// disable the endpoint for everyone.
+const defaultSpendWindow = time.Hour
+
+// spendCap is an in-process, windowed SpendGuard: it allows at most maxCalls
+// billable model calls per window, refilling at the start of each window. It is
+// a hook point — production should replace it with a guard backed by the real
+// workspace spend ledger / Secret Manager budget. maxCalls <= 0 means "no cap".
 type spendCap struct {
-	mu       sync.Mutex
 	maxCalls int
-	used     int
+	window   time.Duration
+	now      func() time.Time
+
+	mu          sync.Mutex
+	windowStart time.Time
+	used        int
 }
 
-// NewSpendCap returns a SpendGuard that trips after maxCalls model calls.
-// maxCalls <= 0 disables the cap.
-func NewSpendCap(maxCalls int) SpendGuard {
-	return &spendCap{maxCalls: maxCalls}
+// NewSpendCap returns a windowed SpendGuard allowing at most maxCalls model
+// calls per window. maxCalls <= 0 disables the cap; window <= 0 uses
+// defaultSpendWindow.
+func NewSpendCap(maxCalls int, window time.Duration) SpendGuard {
+	if window <= 0 {
+		window = defaultSpendWindow
+	}
+	return &spendCap{maxCalls: maxCalls, window: window, now: time.Now}
 }
 
 func (s *spendCap) Allow() bool {
@@ -75,6 +89,12 @@ func (s *spendCap) Allow() bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	now := s.now()
+	if s.windowStart.IsZero() || now.Sub(s.windowStart) >= s.window {
+		s.windowStart = now
+		s.used = 0
+	}
 	if s.used >= s.maxCalls {
 		return false
 	}

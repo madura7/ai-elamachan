@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 
@@ -106,10 +107,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many draft requests; slow down")
 		return
 	}
-	if !h.spend.Allow() {
-		writeError(w, http.StatusServiceUnavailable, "spend_cap_reached", "AI-assist spend cap reached; try again later")
-		return
-	}
 
 	keywords, imageB64, imageMedia, err := parseDraftRequest(r)
 	if err != nil {
@@ -125,6 +122,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		default:
 			writeError(w, http.StatusBadRequest, "invalid_request", "could not parse the draft request")
 		}
+		return
+	}
+
+	// Charge the spend cap only now that we know a real (billable) model call is
+	// about to happen — malformed/oversize/empty requests above never reach the
+	// model and must not consume a spend slot.
+	if !h.spend.Allow() {
+		writeError(w, http.StatusServiceUnavailable, "spend_cap_reached", "AI-assist spend cap reached; try again later")
 		return
 	}
 
@@ -174,8 +179,8 @@ func parseDraftRequest(r *http.Request) (keywords, imageB64, imageMedia string, 
 	}
 	defer file.Close()
 
-	imageMedia = header.Header.Get("Content-Type")
-	if !allowedImageTypes[imageMedia] {
+	// Fast reject on the declared multipart Content-Type.
+	if !allowedImageTypes[header.Header.Get("Content-Type")] {
 		return "", "", "", errUnsupportedImageType
 	}
 
@@ -187,6 +192,14 @@ func parseDraftRequest(r *http.Request) (keywords, imageB64, imageMedia string, 
 	}
 	if len(raw) > maxImageBytes {
 		return "", "", "", ErrImageTooLarge
+	}
+
+	// Defense-in-depth: don't trust the declared type — sniff the actual bytes
+	// and use the detected media type when calling the model, so a non-image
+	// (or a file with a spoofed Content-Type) can't be forwarded.
+	imageMedia = http.DetectContentType(raw)
+	if !allowedImageTypes[imageMedia] {
+		return "", "", "", errUnsupportedImageType
 	}
 
 	imageB64 = base64.StdEncoding.EncodeToString(raw)
@@ -203,16 +216,16 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, errEnvelope{Error: errBody{Code: code, Message: message}})
 }
 
-// defaultUserKey identifies the caller for rate limiting. Once auth middleware
-// (ADR 0002, JWT) lands it should set an authenticated user id header; until
-// then we fall back to the remote address so the limit still bites.
+// defaultUserKey identifies the caller for rate limiting. It keys on the remote
+// IP ONLY: a client-supplied identity header (e.g. X-User-ID) must not be
+// trusted, since a caller could rotate it from a single host to mint unlimited
+// fresh buckets and defeat the only per-user protection on this billable
+// endpoint. Once verified JWT auth (ADR 0002) lands, swap in a UserKeyFn that
+// reads the authenticated user id set by that trusted middleware.
 func defaultUserKey(r *http.Request) string {
-	if uid := r.Header.Get("X-User-ID"); uid != "" {
-		return "user:" + uid
-	}
-	host := r.RemoteAddr
-	if i := strings.LastIndex(host, ":"); i > 0 {
-		host = host[:i]
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
 	}
 	return "ip:" + host
 }
