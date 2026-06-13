@@ -1,0 +1,44 @@
+{
+  "common": {
+    "appName": "ElaMachan",
+    "languageName": "English"
+  },
+  "home": {
+    "title": "ElaMachan",
+    "tagline": "Sri Lanka's AI-assisted marketplace.",
+    "startSelling": "Create a listing with AI assist"
+  },
+  "aiAssist": {
+    "heading": "AI-assisted listing draft",
+    "intro": "Add a photo and a few keywords. We'll draft a trilingual listing you can edit before you publish.",
+    "photoLabel": "Photo (optional)",
+    "photoHint": "Up to 5 MiB. Large images are resized automatically.",
+    "photoTooLarge": "That image is over the 5 MiB limit. Please choose a smaller file.",
+    "removePhoto": "Remove photo",
+    "keywordsLabel": "Keywords",
+    "keywordsPlaceholder": "e.g. iPhone 13 Pro, 256GB, blue, like new",
+    "keywordsHint": "A few words about the item. Up to 2 KB.",
+    "keywordsTooLong": "Keywords are too long (max 2 KB).",
+    "keywordsRequired": "Please enter at least a couple of keywords.",
+    "generate": "Generate draft",
+    "regenerate": "Regenerate draft",
+    "generating": "Drafting your listing…",
+    "resizing": "Preparing photo…",
+    "streamingHint": "Text is being written live — you can edit any field once it appears.",
+    "category": "Category",
+    "categoryHint": "Suggested by AI. Confirm or change it.",
+    "title": "Title",
+    "description": "Description",
+    "languageEn": "English",
+    "languageSi": "Sinhala",
+    "languageTa": "Tamil",
+    "reviewNeeded": "Needs a human review",
+    "draftReadyTitle": "Draft ready",
+    "draftReadyBody": "Review and edit each language, then create your listing. Nothing is published automatically.",
+    "createListing": "Create listing",
+    "createListingHint": "Creating a listing is a separate, signed-in step. The AI draft is only a starting point.",
+    "createListingNotWired": "Listing creation is handled by the create-listing flow (not part of this draft step).",
+    "error": "Something went wrong while drafting. Please try again.",
+    "cancel": "Cancel"
+  }
+}

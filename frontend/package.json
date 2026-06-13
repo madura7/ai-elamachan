@@ -2,9 +2,27 @@
   "name": "elamachan-frontend",
   "version": "0.0.0",
   "private": true,
-  "description": "ElaMachan frontend (Next.js 15, App Router, TypeScript). App scaffold lands in a follow-up issue.",
+  "description": "ElaMachan frontend (Next.js 15, App Router, TypeScript) with trilingual (si/ta/en) i18n via next-intl.",
   "scripts": {
-    "lint": "echo \"(placeholder) no lint configured yet — replaced when the Next.js app is scaffolded\"",
-    "build": "echo \"(placeholder) no build configured yet — replaced when the Next.js app is scaffolded\""
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "15.5.19",
+    "next-intl": "4.13.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.2.0",
+    "@types/node": "^20.19.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.18.0",
+    "eslint-config-next": "15.5.19",
+    "typescript": "^5.7.0"
   }
 }
