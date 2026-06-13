@@ -33,6 +33,22 @@ if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   echo "ERROR: set ANTHROPIC_API_KEY" >&2; exit 1
 fi
 
+# Portable millisecond epoch. GNU date supports `+%s%3N`, but BSD/macOS date
+# does not — there it emits a literal "3N" (e.g. 17813732723N), which would
+# corrupt the latency math below. Use date's %N only when it yields pure
+# digits; otherwise fall back to perl/python3.
+now_ms() {
+  local t; t=$(date +%s%3N 2>/dev/null)
+  if [[ "$t" =~ ^[0-9]+$ ]]; then printf '%s' "$t"; return; fi
+  if command -v perl >/dev/null 2>&1; then
+    perl -MTime::HiRes=time -e 'printf "%d", time()*1000'; return
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import time; print(int(time.time()*1000))'; return
+  fi
+  printf '%s' "$(( $(date +%s) * 1000 ))"   # last resort: second precision
+}
+
 # --- System prompt: untrusted-data framing + no-agency guardrails ---------
 read -r -d '' SYSTEM <<'SYS' || true
 You generate a DRAFT classified-marketplace listing for a Sri Lankan
@@ -113,10 +129,10 @@ run_case() {
       tool_choice:{type:"tool", name:"create_listing_draft"},
       messages:[{role:"user", content:$content}]
     }')
-  t0=$(date +%s%3N)
+  t0=$(now_ms)
   resp=$(curl -sS "$API" -H "x-api-key: $ANTHROPIC_API_KEY" \
     -H "anthropic-version: $VER" -H "content-type: application/json" -d "$body")
-  t1=$(date +%s%3N); ms=$((t1 - t0))
+  t1=$(now_ms); ms=$((t1 - t0))
   in=$(echo "$resp"  | jq -r '.usage.input_tokens // "ERR"')
   out=$(echo "$resp" | jq -r '.usage.output_tokens // "ERR"')
   if [[ "$in" == "ERR" ]]; then
