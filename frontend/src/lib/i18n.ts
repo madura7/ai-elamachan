@@ -1,0 +1,70 @@
+export type Locale = "en" | "si" | "ta";
+
+export const translations = {
+  en: {
+    appName: "ElaMachan",
+    tagline: "Sri Lanka's trusted marketplace",
+    enterPhone: "Enter your phone number",
+    phonePlaceholder: "07X XXX XXXX",
+    sendOTP: "Send OTP",
+    sending: "Sending…",
+    enterOTP: "Enter verification code",
+    otpSentTo: "We sent a 6-digit code to",
+    verify: "Verify",
+    verifying: "Verifying…",
+    resend: "Resend code",
+    backToPhone: "← Change number",
+    invalidPhone: "Enter a valid Sri Lanka mobile number",
+    invalidOTP: "Enter the 6-digit code",
+    listings: "Listings",
+    welcome: "Welcome",
+    signOut: "Sign out",
+    loading: "Loading…",
+  },
+  si: {
+    appName: "ඇළමාකාන්",
+    tagline: "ශ්‍රී ලංකාවේ විශ්වාසනීය වෙළඳපළ",
+    enterPhone: "ඔබේ දුරකථන අංකය ඇතුළු කරන්න",
+    phonePlaceholder: "07X XXX XXXX",
+    sendOTP: "OTP යවන්න",
+    sending: "යවමින්…",
+    enterOTP: "තහවුරු කේතය ඇතුළු කරන්න",
+    otpSentTo: "6-ඉලක්කම් කේතය යැවූ අංකය",
+    verify: "තහවුරු කරන්න",
+    verifying: "තහවුරු කරමින්…",
+    resend: "කේතය නැවත යවන්න",
+    backToPhone: "← අංකය වෙනස් කරන්න",
+    invalidPhone: "වලංගු ශ්‍රී ලංකා ජංගම දුරකථන අංකයක් ඇතුළු කරන්න",
+    invalidOTP: "6-ඉලක්කම් කේතය ඇතුළු කරන්න",
+    listings: "දැන්වීම්",
+    welcome: "ආයුබෝවන්",
+    signOut: "ඉවත් වන්න",
+    loading: "පූරණය…",
+  },
+  ta: {
+    appName: "எளமாகான்",
+    tagline: "இலங்கையின் நம்பகமான சந்தை",
+    enterPhone: "உங்கள் தொலைபேசி எண்ணை உள்ளிடுக",
+    phonePlaceholder: "07X XXX XXXX",
+    sendOTP: "OTP அனுப்பு",
+    sending: "அனுப்புகிறது…",
+    enterOTP: "சரிபார்ப்பு குறியீட்டை உள்ளிடுக",
+    otpSentTo: "6-இலக்க குறியீடு அனுப்பப்பட்ட எண்",
+    verify: "சரிபார்க்கவும்",
+    verifying: "சரிபார்க்கிறது…",
+    resend: "குறியீட்டை மீண்டும் அனுப்பு",
+    backToPhone: "← எண்ணை மாற்று",
+    invalidPhone: "செல்லுபடியான இலங்கை மொபைல் எண்ணை உள்ளிடுக",
+    invalidOTP: "6-இலக்க குறியீட்டை உள்ளிடுக",
+    listings: "விளம்பரங்கள்",
+    welcome: "வரவேற்கிறோம்",
+    signOut: "வெளியேறு",
+    loading: "ஏற்றுகிறது…",
+  },
+} as const;
+
+export type TranslationKey = keyof typeof translations.en;
+
+export function t(locale: Locale, key: TranslationKey): string {
+  return translations[locale][key];
+}
