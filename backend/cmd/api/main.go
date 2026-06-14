@@ -16,6 +16,7 @@ import (
 	"github.com/madura7/ai-elamachan/backend/internal/health"
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
 	"github.com/madura7/ai-elamachan/backend/internal/storage"
+	"github.com/madura7/ai-elamachan/backend/internal/translate"
 )
 
 func main() {
@@ -24,6 +25,11 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(health.Check())
 	})
+
+	// Read ANTHROPIC_API_KEY once; shared by AI-draft (VER-58) and lazy
+	// translation (VER-139). When absent both paths degrade gracefully: the
+	// draft endpoint returns 503, the translation path returns the original lang.
+	anthropicKey := os.Getenv("ANTHROPIC_API_KEY")
 
 	// AI-assisted listing draft (VER-58). Returns a draft only — never creates
 	// or publishes a listing. Requires ANTHROPIC_API_KEY (secret, from Secret
@@ -34,6 +40,12 @@ func main() {
 		mux.HandleFunc("POST /api/listings/ai-draft", aiAssistUnavailable)
 	} else {
 		mux.Handle("POST /api/listings/ai-draft", h)
+	}
+
+	// Lazy machine translation (VER-139). translator is nil when key is absent.
+	translator := translate.NewFromEnv(anthropicKey)
+	if translator == nil {
+		log.Println("translate: lazy machine translation disabled (no ANTHROPIC_API_KEY)")
 	}
 
 	// Phone/OTP auth + JWT/Redis sessions (VER-135, ADR 0002).
@@ -89,7 +101,7 @@ func main() {
 		http.StripPrefix("/api/v1/images/", http.FileServer(http.Dir(imgDir))))
 
 	listingStore := listings.NewStore(db, imgBaseURL)
-	listings.NewHandler(listingStore, stor).Register(mux)
+	listings.NewHandler(listingStore, stor, translator).Register(mux)
 
 	log.Printf("elamachan-backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

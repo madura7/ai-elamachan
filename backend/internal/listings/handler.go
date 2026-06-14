@@ -2,6 +2,7 @@ package listings
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -27,15 +28,23 @@ var allowedImageTypes = map[string]string{
 	"image/gif":  ".gif",
 }
 
-// Handler registers all /api/v1/listings routes.
-type Handler struct {
-	store   *Store
-	storage storage.Store
+// Translator generates machine translations of listing content.
+// The translate package provides the production implementation; nil means AI is
+// not configured and the original language is returned on a lang mismatch.
+type Translator interface {
+	Translate(ctx context.Context, sourceLang, targetLang, title, description string) (string, string, error)
 }
 
-// NewHandler creates a Handler.
-func NewHandler(store *Store, stor storage.Store) *Handler {
-	return &Handler{store: store, storage: stor}
+// Handler registers all /api/v1/listings routes.
+type Handler struct {
+	store      *Store
+	storage    storage.Store
+	translator Translator // nil when ANTHROPIC_API_KEY is not configured
+}
+
+// NewHandler creates a Handler. translator may be nil.
+func NewHandler(store *Store, stor storage.Store, translator Translator) *Handler {
+	return &Handler{store: store, storage: stor, translator: translator}
 }
 
 // Register adds listing routes to mux using Go 1.22 method+path patterns.
@@ -107,6 +116,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 // get handles GET /api/v1/listings/{id}
+//
+// Optional ?lang= query param (en|si|ta) requests the listing in a specific
+// language. When it differs from the listing's content_language, the handler
+// checks the listing_translations cache and, on a miss, lazily generates a
+// machine translation via the configured Translator (VER-139). On any failure
+// the original language is returned (graceful degradation).
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if !isValidUUID(id) {
@@ -125,7 +140,56 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if lang := r.URL.Query().Get("lang"); lang != "" && lang != listing.ContentLanguage {
+		if !ValidLangs[lang] {
+			apierr.Write(w, http.StatusBadRequest, "invalid_lang", "lang must be en, si, or ta")
+			return
+		}
+		listing = h.withLang(r.Context(), listing, lang)
+	}
+
 	writeJSON(w, http.StatusOK, listing)
+}
+
+// withLang returns a shallow copy of listing with content translated into lang.
+// It serves from the machine-translation cache when available; on a cache miss
+// it calls the Translator. On any error the original listing is returned so the
+// caller always gets a usable response.
+func (h *Handler) withLang(ctx context.Context, listing *Listing, lang string) *Listing {
+	cached, err := h.store.GetCachedTranslation(ctx, listing.ID, lang)
+	if err != nil {
+		log.Printf("listings.withLang: get cache %s→%s: %v", listing.ID, lang, err)
+		return listing
+	}
+	if cached != nil {
+		return translatedListing(listing, cached.Title, cached.Description)
+	}
+
+	if h.translator == nil {
+		return listing
+	}
+
+	tTitle, tDesc, err := h.translator.Translate(ctx, listing.ContentLanguage, lang, listing.Title, listing.Description)
+	if err != nil {
+		log.Printf("listings.withLang: translate %s %s→%s: %v", listing.ID, listing.ContentLanguage, lang, err)
+		return listing
+	}
+
+	if err := h.store.UpsertMachineTranslation(ctx, listing.ID, lang, tTitle, tDesc); err != nil {
+		log.Printf("listings.withLang: cache write %s→%s: %v", listing.ID, lang, err)
+		// Cache write failed; still return the translation we just generated.
+	}
+
+	return translatedListing(listing, tTitle, tDesc)
+}
+
+func translatedListing(src *Listing, title, description string) *Listing {
+	src2 := *src
+	src2.Title = title
+	src2.Description = description
+	s := "machine"
+	src2.TranslationSource = &s
+	return &src2
 }
 
 // update handles PUT /api/v1/listings/{id}

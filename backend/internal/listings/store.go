@@ -308,6 +308,49 @@ func (s *Store) ImageCount(ctx context.Context, listingID string) (int, error) {
 	return count, nil
 }
 
+// CachedTranslation holds a machine-generated translation row.
+type CachedTranslation struct {
+	Title       string
+	Description string
+}
+
+// GetCachedTranslation returns the machine translation for listingID in lang,
+// or nil if no machine translation exists yet.
+func (s *Store) GetCachedTranslation(ctx context.Context, listingID, lang string) (*CachedTranslation, error) {
+	var t CachedTranslation
+	err := s.db.QueryRow(ctx, `
+		SELECT title, COALESCE(description, '')
+		FROM listing_translations
+		WHERE listing_id = $1 AND lang = $2 AND source = 'machine'
+	`, listingID, lang).Scan(&t.Title, &t.Description)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: get cached translation: %w", err)
+	}
+	return &t, nil
+}
+
+// UpsertMachineTranslation writes a Claude-generated translation.
+// It will never overwrite a human-authored translation (source='human') — the
+// WHERE clause on DO UPDATE enforces ADR 0001.
+func (s *Store) UpsertMachineTranslation(ctx context.Context, listingID, lang, title, description string) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO listing_translations (listing_id, lang, title, description, source, generated_at)
+		VALUES ($1, $2, $3, $4, 'machine', now())
+		ON CONFLICT (listing_id, lang) DO UPDATE
+			SET title        = EXCLUDED.title,
+			    description  = EXCLUDED.description,
+			    generated_at = now()
+			WHERE listing_translations.source = 'machine'
+	`, listingID, lang, title, description)
+	if err != nil {
+		return fmt.Errorf("store: upsert machine translation: %w", err)
+	}
+	return nil
+}
+
 // ListingExists returns true if id refers to an active listing.
 func (s *Store) ListingExists(ctx context.Context, id string) (bool, error) {
 	var exists bool
