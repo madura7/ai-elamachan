@@ -2,14 +2,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/madura7/ai-elamachan/backend/internal/aiassist"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
+	"github.com/madura7/ai-elamachan/backend/internal/listings"
+	"github.com/madura7/ai-elamachan/backend/internal/storage"
 )
 
 func main() {
@@ -46,11 +52,51 @@ func main() {
 		port = "8080"
 	}
 
+	// Listings CRUD + image upload (VER-129).
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable"
+	}
+	db, err := pgxpool.New(context.Background(), dbURL)
+	if err != nil {
+		log.Fatalf("listings: db: %v", err)
+	}
+	defer db.Close()
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.Ping(pingCtx); err != nil {
+		log.Fatalf("listings: db ping: %v", err)
+	}
+	log.Println("listings: db connected")
+
+	imgDir := os.Getenv("IMAGE_DIR")
+	if imgDir == "" {
+		imgDir = "/tmp/elamachan-images"
+	}
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:" + port
+	}
+	imgBaseURL := baseURL + "/api/v1/images"
+
+	stor, err := storage.NewLocal(imgDir)
+	if err != nil {
+		log.Fatalf("listings: storage: %v", err)
+	}
+	// Serve locally stored images at /api/v1/images/{key}
+	mux.Handle("/api/v1/images/",
+		http.StripPrefix("/api/v1/images/", http.FileServer(http.Dir(imgDir))))
+
+	listingStore := listings.NewStore(db, imgBaseURL)
+	listings.NewHandler(listingStore, stor).Register(mux)
+
 	log.Printf("elamachan-backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
+
 
 func aiAssistUnavailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
