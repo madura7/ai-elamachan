@@ -59,3 +59,48 @@ day and appends to the ledger. See VER-70 for the routine id.
 
 Read-only inventory + compute + record. Out of scope: optimization proposals
 (68b), config writes (68c), report formatting (68d).
+
+---
+
+## `ceo_morning_report.py` — CEO Morning Report (VER-72 / 68d)
+
+Daily report generator. Reads the latest `audit-ledger` entry from VER-81 and
+delivers a morning briefing to the CEO as a new Paperclip issue.
+
+The report includes:
+
+- **Fleet synthetic spend** (labeled `estimated (subscription, token-derived)` — never billed spend) + WoW trend.
+- **Per-agent usage table** (tokens, synthetic cost, WoW %, drift, model-fit).
+- **Drift flags** — agents with stale-heartbeat events or error status.
+- **Model-fit summary** vs the §3 model-assignment matrix.
+- **Proposed optimizations** split into:
+  - `auto-approve-eligible` — no drift, ≤ 5% failure rate, not the CEO's own config.
+  - `escalate-to-CEO` — drift, high failure rate, or the CEO's own config.
+
+### Run
+
+```bash
+# Generate and deliver to CEO:
+python3 scripts/ceo_morning_report.py
+
+# Preview without creating an issue:
+python3 scripts/ceo_morning_report.py --dry-run
+
+# Override the target ledger issue:
+python3 scripts/ceo_morning_report.py --ledger-issue-id <issueId>
+```
+
+Stdlib only — no dependencies.
+
+### Daily routine
+
+Runs unattended via a Paperclip routine ("Daily CEO Morning Report (68d)",
+schedule `0 9 * * *` UTC, 30 min after the 08:30 UTC auditor). Each fire
+creates an execution issue assigned to the Engineer agent. See VER-72 for
+the routine id (`b96e72d1`).
+
+### Ledger schema
+
+The `audit-ledger` entry schema is formally documented in the `ledger-schema`
+document on VER-81 (query approach by date, by agent; full field reference;
+pricing table). Schema version: 1.
