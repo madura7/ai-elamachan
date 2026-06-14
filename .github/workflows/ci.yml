@@ -45,6 +45,29 @@ jobs:
       - run: npm run lint --if-present
       - run: npm run build --if-present
 
+  api-contract:
+    name: API contract (validate spec / typed-client sync)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      # Spec must be valid OpenAPI 3.1 (ADR 0003).
+      - name: Validate api/openapi.yaml
+        run: npm run api:lint
+      # Fail if the committed typed client is out of sync with the spec, so the
+      # frontend can never silently drift from the contract.
+      - name: Check generated types are in sync
+        run: npm run api:check
+      - name: Typecheck generated client
+        run: npx tsc --noEmit -p tsconfig.json
+
   migrations:
     name: Migrations (apply check)
     runs-on: ubuntu-latest

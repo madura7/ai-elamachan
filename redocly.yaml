@@ -1,0 +1,23 @@
+# Redocly config for linting api/openapi.yaml (ADR 0003).
+# Used by CI (`npm run api:lint` in frontend/) and locally.
+#
+# We extend the recommended ruleset for genuine structural + best-practice
+# validation, then deliberately relax three stylistic opinions that do not fit a
+# trilingual classifieds API with public browse endpoints:
+#   - security-defined: OFF — public endpoints (browse, search, OTP request)
+#     are intentionally unauthenticated; protected ops declare `security`
+#     per-operation.
+#   - info-license: OFF — this is a private product spec, not a published API.
+#   - operation-4xx-response: WARN — stub read endpoints add error responses as
+#     they are finalized by their feature issues.
+extends:
+  - recommended
+
+rules:
+  security-defined: off
+  info-license: off
+  operation-4xx-response: warn
+
+apis:
+  v1:
+    root: api/openapi.yaml
