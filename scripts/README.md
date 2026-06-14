@@ -3,6 +3,15 @@
 Meta-tooling for operating the Paperclip agent fleet. These are **not** part of
 the ElaMachan product; they talk to the Paperclip control-plane API, not the app.
 
+| Script | Issue | Description |
+|---|---|---|
+| `agent_audit.py` | VER-70 (68a) | Daily read-only fleet audit → appends to ledger |
+| `ceo_morning_report.py` | VER-72 (68d) | Daily CEO briefing → creates report issue for CEO |
+
+Ledger storage: `audit-ledger` document on [VER-81] (dedicated ledger issue). Schema: `ledger-schema` document on VER-81.
+
+---
+
 ## `agent_audit.py` — Agent Auditor (VER-70 / 68a)
 
 Daily, **read-only** fleet audit. Gathers per-agent telemetry and appends a dated
