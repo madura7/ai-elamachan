@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import {
   CATEGORY_SUGGESTIONS,
@@ -39,6 +39,16 @@ export function AiAssistEditor() {
   const [hasDraft, setHasDraft] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Revoke the blob URL on unmount so it doesn't leak when navigating away.
+  const photoPreviewRef = useRef<string | null>(null);
+  photoPreviewRef.current = photoPreview;
+  useEffect(
+    () => () => {
+      if (photoPreviewRef.current) URL.revokeObjectURL(photoPreviewRef.current);
+    },
+    [],
+  );
 
   const onPhotoChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -172,7 +182,7 @@ export function AiAssistEditor() {
             <div className="preview">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={photoPreview} alt="" width={160} />
-              <button type="button" className="link" onClick={removePhoto}>
+              <button type="button" className="link" onClick={removePhoto} disabled={busy}>
                 {t("removePhoto")}
               </button>
             </div>
@@ -282,6 +292,7 @@ export function AiAssistEditor() {
                   rows={5}
                   value={draft.description[lang]}
                   onChange={(e) => updateDescription(lang, e.target.value)}
+                  readOnly={status === "streaming"}
                 />
               </div>
             ))}
