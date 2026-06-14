@@ -7,7 +7,7 @@ the last available audit entry, computes week-over-week token trends, synthetic
 cost summary, model-fit flags, drift alerts, and a split optimisation proposal
 (auto-approve-eligible vs escalate-to-CEO), then:
 
-  1. Upserts a `morning-report` document on the report host issue (VER-99, Engineer-owned).
+  1. Upserts a `morning-report` document on the report host issue (VER-104, Engineer-owned).
   2. Creates a daily `CEO Morning Brief {date}` issue assigned to CEO for inbox delivery.
 
 READ-ONLY with respect to agent configuration — never writes adapterConfig.
@@ -26,7 +26,7 @@ Usage:
   --date       : report date (defaults to most-recent entry in the ledger)
   --dry-run    : print the report; do not write or comment
   --ledger-issue-id  : override ledger host (default: VER-81)
-  --report-issue-id  : override report host (default: VER-99, Engineer-owned)
+  --report-issue-id  : override report host (default: VER-104, Engineer-owned)
 """
 from __future__ import annotations
 
@@ -498,23 +498,32 @@ def main() -> int:
     )
     print(f"Morning report updated: issue {args.report_issue_id} doc '{MORNING_REPORT_KEY}' (date {target_date}).")
 
-    # 5. Create a daily CEO brief issue (assigned to CEO) for delivery
+    # 5. Create a daily CEO brief issue (assigned to CEO) — idempotent per date
     company = os.environ["PAPERCLIP_COMPANY_ID"]
     brief_title, brief_desc = build_ceo_brief(entry, company)
-    brief = api(
-        "POST",
-        f"/api/companies/{company}/issues",
-        {
-            "title": brief_title,
-            "description": brief_desc,
-            "status": "todo",
-            "priority": "medium",
-            "assigneeAgentId": CEO_AGENT_ID,
-            "parentId": VER68_PARENT_ID,
-        },
+    existing = api("GET", f"/api/companies/{company}/issues?q={urllib.parse.quote(brief_title)}")
+    existing_list = existing if isinstance(existing, list) else (existing or {}).get("issues", [])
+    duplicate = next(
+        (i for i in existing_list if i.get("title") == brief_title and i.get("status") not in ("done", "cancelled")),
+        None,
     )
-    brief_id = brief.get("identifier", "?") if brief else "?"
-    print(f"CEO brief issue created: {brief_id}.")
+    if duplicate:
+        print(f"CEO brief for {target_date} already exists ({duplicate.get('identifier', '?')}) — skipping creation.")
+    else:
+        brief = api(
+            "POST",
+            f"/api/companies/{company}/issues",
+            {
+                "title": brief_title,
+                "description": brief_desc,
+                "status": "todo",
+                "priority": "medium",
+                "assigneeAgentId": CEO_AGENT_ID,
+                "parentId": VER68_PARENT_ID,
+            },
+        )
+        brief_id = brief.get("identifier", "?") if brief else "?"
+        print(f"CEO brief issue created: {brief_id}.")
     return 0
 
 
