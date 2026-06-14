@@ -35,16 +35,46 @@ type Translator interface {
 	Translate(ctx context.Context, sourceLang, targetLang, title, description string) (string, string, error)
 }
 
+// SearchIndexer keeps the search index in sync with listing writes (VER-130).
+// The search package provides the production implementation; nil means search is
+// not configured and indexing is skipped. All methods are best-effort: a failure
+// is logged but never fails the listing write.
+type SearchIndexer interface {
+	IndexListing(ctx context.Context, listingID string) error
+	DeleteListing(ctx context.Context, listingID string) error
+}
+
 // Handler registers all /api/v1/listings routes.
 type Handler struct {
 	store      *Store
 	storage    storage.Store
-	translator Translator // nil when ANTHROPIC_API_KEY is not configured
+	translator Translator    // nil when ANTHROPIC_API_KEY is not configured
+	indexer    SearchIndexer // nil when MEILI_URL is not configured
 }
 
-// NewHandler creates a Handler. translator may be nil.
-func NewHandler(store *Store, stor storage.Store, translator Translator) *Handler {
-	return &Handler{store: store, storage: stor, translator: translator}
+// NewHandler creates a Handler. translator and indexer may be nil.
+func NewHandler(store *Store, stor storage.Store, translator Translator, indexer SearchIndexer) *Handler {
+	return &Handler{store: store, storage: stor, translator: translator, indexer: indexer}
+}
+
+// reindex upserts listingID into the search index, best-effort.
+func (h *Handler) reindex(ctx context.Context, listingID string) {
+	if h.indexer == nil {
+		return
+	}
+	if err := h.indexer.IndexListing(ctx, listingID); err != nil {
+		log.Printf("listings: reindex %s: %v", listingID, err)
+	}
+}
+
+// deindex removes listingID from the search index, best-effort.
+func (h *Handler) deindex(ctx context.Context, listingID string) {
+	if h.indexer == nil {
+		return
+	}
+	if err := h.indexer.DeleteListing(ctx, listingID); err != nil {
+		log.Printf("listings: deindex %s: %v", listingID, err)
+	}
 }
 
 // Register adds listing routes to mux using Go 1.22 method+path patterns.
@@ -112,6 +142,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.reindex(r.Context(), listing.ID)
 	writeJSON(w, http.StatusCreated, listing)
 }
 
@@ -178,6 +209,10 @@ func (h *Handler) withLang(ctx context.Context, listing *Listing, lang string) *
 	if err := h.store.UpsertMachineTranslation(ctx, listing.ID, lang, tTitle, tDesc); err != nil {
 		log.Printf("listings.withLang: cache write %s→%s: %v", listing.ID, lang, err)
 		// Cache write failed; still return the translation we just generated.
+	} else {
+		// A new localized translation is now cached — refresh the index so
+		// queries in this language can find the listing (VER-130).
+		h.reindex(ctx, listing.ID)
 	}
 
 	return translatedListing(listing, tTitle, tDesc)
@@ -221,6 +256,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.reindex(r.Context(), listing.ID)
 	writeJSON(w, http.StatusOK, listing)
 }
 
@@ -243,6 +279,7 @@ func (h *Handler) deleteOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.deindex(r.Context(), id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -321,6 +358,10 @@ func (h *Handler) uploadImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Refresh the index so the new thumbnail (first image) shows in search hits.
+	if count == 0 {
+		h.reindex(r.Context(), id)
+	}
 	writeJSON(w, http.StatusCreated, img)
 }
 
