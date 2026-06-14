@@ -1,6 +1,4 @@
 // Command api is the ElaMachan backend HTTP service entrypoint.
-// This skeleton exposes a single /healthz endpoint; routing, persistence, auth,
-// search, and the Claude-assisted listing flow are layered on in follow-up issues.
 package main
 
 import (
@@ -10,6 +8,7 @@ import (
 	"os"
 
 	"github.com/madura7/ai-elamachan/backend/internal/aiassist"
+	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
 )
 
@@ -31,6 +30,17 @@ func main() {
 		mux.Handle("POST /api/listings/ai-draft", h)
 	}
 
+	// Phone/OTP auth + JWT/Redis sessions (VER-135, ADR 0002).
+	// Requires JWT_SECRET and DATABASE_URL. Redis defaults to localhost:6379.
+	// SMS_MODE=dev logs OTPs to stdout; real SMS delivery needs VER-44.
+	if h, err := auth.NewHandlerFromEnv(); err != nil {
+		log.Printf("auth: endpoints disabled: %v", err)
+		mux.HandleFunc("POST /api/v1/auth/otp/request", authUnavailable)
+		mux.HandleFunc("POST /api/v1/auth/otp/verify", authUnavailable)
+	} else {
+		h.RegisterRoutes(mux)
+	}
+
 	port := os.Getenv("BACKEND_PORT")
 	if port == "" {
 		port = "8080"
@@ -42,8 +52,6 @@ func main() {
 	}
 }
 
-// aiAssistUnavailable responds when the AI-draft endpoint is registered but its
-// API key is not provisioned, using the canonical error envelope (ADR 0003).
 func aiAssistUnavailable(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
@@ -51,6 +59,17 @@ func aiAssistUnavailable(w http.ResponseWriter, r *http.Request) {
 		"error": map[string]string{
 			"code":    "ai_assist_unavailable",
 			"message": "AI-assist is not configured on this server",
+		},
+	})
+}
+
+func authUnavailable(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]string{
+			"code":    "auth_unavailable",
+			"message": "Auth is not configured on this server (check JWT_SECRET and DATABASE_URL)",
 		},
 	})
 }
