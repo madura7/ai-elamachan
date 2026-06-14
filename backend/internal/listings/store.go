@@ -140,15 +140,55 @@ func (s *Store) Get(ctx context.Context, id string) (*Listing, error) {
 	}, nil
 }
 
-// List returns a paginated, optionally category-filtered page of active listings.
-func (s *Store) List(ctx context.Context, category string, page, pageSize int) (*Page, error) {
+// List returns a paginated page of active listings, optionally filtered by ownerID and/or category.
+// ownerID="" and category="" return all active listings.
+func (s *Store) List(ctx context.Context, ownerID, category string, page, pageSize int) (*Page, error) {
 	offset := (page - 1) * pageSize
 
 	var total int
 	var rows pgx.Rows
 	var err error
 
-	if category != "" {
+	switch {
+	case ownerID != "" && category != "":
+		if err = s.db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM listings l
+			JOIN categories c ON c.id = l.category_id
+			WHERE l.status = 'active' AND l.user_id = $1 AND c.slug = $2
+		`, ownerID, category).Scan(&total); err != nil {
+			return nil, fmt.Errorf("store: count listings: %w", err)
+		}
+		rows, err = s.db.Query(ctx, `
+			SELECT l.id, c.slug, COALESCE(lt.title, ''), l.price_cents, l.created_at,
+			       (SELECT object_key FROM listing_images
+			        WHERE listing_id = l.id ORDER BY sort_order LIMIT 1)
+			FROM listings l
+			JOIN categories c ON c.id = l.category_id
+			LEFT JOIN listing_translations lt
+			       ON lt.listing_id = l.id AND lt.lang = l.content_language
+			WHERE l.status = 'active' AND l.user_id = $1 AND c.slug = $2
+			ORDER BY l.created_at DESC
+			LIMIT $3 OFFSET $4
+		`, ownerID, category, pageSize, offset)
+	case ownerID != "":
+		if err = s.db.QueryRow(ctx, `
+			SELECT COUNT(*) FROM listings WHERE status = 'active' AND user_id = $1
+		`, ownerID).Scan(&total); err != nil {
+			return nil, fmt.Errorf("store: count listings: %w", err)
+		}
+		rows, err = s.db.Query(ctx, `
+			SELECT l.id, c.slug, COALESCE(lt.title, ''), l.price_cents, l.created_at,
+			       (SELECT object_key FROM listing_images
+			        WHERE listing_id = l.id ORDER BY sort_order LIMIT 1)
+			FROM listings l
+			JOIN categories c ON c.id = l.category_id
+			LEFT JOIN listing_translations lt
+			       ON lt.listing_id = l.id AND lt.lang = l.content_language
+			WHERE l.status = 'active' AND l.user_id = $1
+			ORDER BY l.created_at DESC
+			LIMIT $2 OFFSET $3
+		`, ownerID, pageSize, offset)
+	case category != "":
 		if err = s.db.QueryRow(ctx, `
 			SELECT COUNT(*) FROM listings l
 			JOIN categories c ON c.id = l.category_id
@@ -168,7 +208,7 @@ func (s *Store) List(ctx context.Context, category string, page, pageSize int) (
 			ORDER BY l.created_at DESC
 			LIMIT $2 OFFSET $3
 		`, category, pageSize, offset)
-	} else {
+	default:
 		if err = s.db.QueryRow(ctx,
 			`SELECT COUNT(*) FROM listings WHERE status = 'active'`).Scan(&total); err != nil {
 			return nil, fmt.Errorf("store: count listings: %w", err)
@@ -357,6 +397,17 @@ func (s *Store) ListingExists(ctx context.Context, id string) (bool, error) {
 	if err := s.db.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM listings WHERE id = $1 AND status = 'active')`, id).Scan(&exists); err != nil {
 		return false, fmt.Errorf("store: listing exists: %w", err)
+	}
+	return exists, nil
+}
+
+// ListingOwnedBy returns true if id refers to an active listing owned by ownerID.
+func (s *Store) ListingOwnedBy(ctx context.Context, id, ownerID string) (bool, error) {
+	var exists bool
+	if err := s.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM listings WHERE id = $1 AND user_id = $2 AND status = 'active')`,
+		id, ownerID).Scan(&exists); err != nil {
+		return false, fmt.Errorf("store: listing owned by: %w", err)
 	}
 	return exists, nil
 }

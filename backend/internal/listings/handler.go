@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/madura7/ai-elamachan/backend/internal/apierr"
+	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/storage"
 )
 
@@ -39,30 +40,52 @@ type Translator interface {
 type Handler struct {
 	store      *Store
 	storage    storage.Store
-	translator Translator // nil when ANTHROPIC_API_KEY is not configured
+	translator Translator    // nil when ANTHROPIC_API_KEY is not configured
+	indexer    SearchIndexer // nil when Meilisearch is not configured
 }
 
-// NewHandler creates a Handler. translator may be nil.
-func NewHandler(store *Store, stor storage.Store, translator Translator) *Handler {
-	return &Handler{store: store, storage: stor, translator: translator}
+// NewHandler creates a Handler. translator and indexer may be nil.
+func NewHandler(store *Store, stor storage.Store, translator Translator, indexer SearchIndexer) *Handler {
+	return &Handler{store: store, storage: stor, translator: translator, indexer: indexer}
 }
 
-// Register adds listing routes to mux using Go 1.22 method+path patterns.
+// Register adds public (unauthenticated) listing routes to mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/listings", h.list)
-	mux.HandleFunc("POST /api/v1/listings", h.create)
 	mux.HandleFunc("GET /api/v1/listings/{id}", h.get)
-	mux.HandleFunc("PUT /api/v1/listings/{id}", h.update)
-	mux.HandleFunc("DELETE /api/v1/listings/{id}", h.deleteOne)
-	mux.HandleFunc("POST /api/v1/listings/{id}/images", h.uploadImage)
+}
+
+// RegisterProtected adds auth-required listing routes wrapped with the given middleware.
+// Call this after Register when an auth.Handler is available.
+func (h *Handler) RegisterProtected(mux *http.ServeMux, authMiddleware func(http.Handler) http.Handler) {
+	wrap := func(fn http.HandlerFunc) http.Handler {
+		return authMiddleware(fn)
+	}
+	mux.Handle("POST /api/v1/listings", wrap(h.create))
+	mux.Handle("PUT /api/v1/listings/{id}", wrap(h.update))
+	mux.Handle("DELETE /api/v1/listings/{id}", wrap(h.deleteOne))
+	mux.Handle("POST /api/v1/listings/{id}/images", wrap(h.uploadImage))
 }
 
 // list handles GET /api/v1/listings
+//
+// Optional ?mine=true requires authentication and returns only the caller's listings.
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
 	if category != "" && !ValidCategories[category] {
 		apierr.Write(w, http.StatusBadRequest, "invalid_category", "unknown category slug")
 		return
+	}
+
+	// ?mine=true: return only the authenticated user's listings.
+	var ownerID string
+	if r.URL.Query().Get("mine") == "true" {
+		uid, ok := auth.UserIDFromContext(r.Context())
+		if !ok {
+			apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required to filter by owner")
+			return
+		}
+		ownerID = uid
 	}
 
 	page, pageSize := 1, 20
@@ -83,7 +106,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		pageSize = n
 	}
 
-	result, err := h.store.List(r.Context(), category, page, pageSize)
+	result, err := h.store.List(r.Context(), ownerID, category, page, pageSize)
 	if err != nil {
 		log.Printf("listings.list: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "failed to list listings")
@@ -93,8 +116,14 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// create handles POST /api/v1/listings
+// create handles POST /api/v1/listings (requires auth via RegisterProtected)
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		return
+	}
+
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apierr.Write(w, http.StatusBadRequest, "invalid_body", "request body must be valid JSON")
@@ -105,13 +134,14 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	listing, err := h.store.Create(r.Context(), DevOwnerID, req)
+	listing, err := h.store.Create(r.Context(), ownerID, req)
 	if err != nil {
 		log.Printf("listings.create: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "failed to create listing")
 		return
 	}
 
+	h.indexListing(r.Context(), listing)
 	writeJSON(w, http.StatusCreated, listing)
 }
 
@@ -192,8 +222,14 @@ func translatedListing(src *Listing, title, description string) *Listing {
 	return &src2
 }
 
-// update handles PUT /api/v1/listings/{id}
+// update handles PUT /api/v1/listings/{id} (requires auth via RegisterProtected)
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if !isValidUUID(id) {
 		apierr.Write(w, http.StatusBadRequest, "invalid_id", "id must be a valid UUID")
@@ -210,58 +246,76 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	listing, err := h.store.Update(r.Context(), id, DevOwnerID, req)
+	listing, err := h.store.Update(r.Context(), id, ownerID, req)
 	if err != nil {
 		log.Printf("listings.update %s: %v", id, err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "failed to update listing")
 		return
 	}
 	if listing == nil {
-		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found")
+		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found or not owned by caller")
 		return
 	}
 
+	h.indexListing(r.Context(), listing)
 	writeJSON(w, http.StatusOK, listing)
 }
 
-// deleteOne handles DELETE /api/v1/listings/{id}
+// deleteOne handles DELETE /api/v1/listings/{id} (requires auth via RegisterProtected)
 func (h *Handler) deleteOne(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if !isValidUUID(id) {
 		apierr.Write(w, http.StatusBadRequest, "invalid_id", "id must be a valid UUID")
 		return
 	}
 
-	deleted, err := h.store.Delete(r.Context(), id, DevOwnerID)
+	deleted, err := h.store.Delete(r.Context(), id, ownerID)
 	if err != nil {
 		log.Printf("listings.delete %s: %v", id, err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "failed to delete listing")
 		return
 	}
 	if !deleted {
-		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found")
+		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found or not owned by caller")
 		return
 	}
 
+	if h.indexer != nil {
+		if err := h.indexer.RemoveListing(r.Context(), id); err != nil {
+			log.Printf("listings.delete: search remove %s: %v", id, err)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// uploadImage handles POST /api/v1/listings/{id}/images
+// uploadImage handles POST /api/v1/listings/{id}/images (requires auth via RegisterProtected)
 func (h *Handler) uploadImage(w http.ResponseWriter, r *http.Request) {
+	ownerID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		return
+	}
+
 	id := r.PathValue("id")
 	if !isValidUUID(id) {
 		apierr.Write(w, http.StatusBadRequest, "invalid_id", "id must be a valid UUID")
 		return
 	}
 
-	exists, err := h.store.ListingExists(r.Context(), id)
+	owned, err := h.store.ListingOwnedBy(r.Context(), id, ownerID)
 	if err != nil {
-		log.Printf("listings.uploadImage: exists: %v", err)
+		log.Printf("listings.uploadImage: ownership check: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "failed to check listing")
 		return
 	}
-	if !exists {
-		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found")
+	if !owned {
+		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found or not owned by caller")
 		return
 	}
 
@@ -381,6 +435,31 @@ func isValidUUID(s string) bool {
 	return true
 }
 
+// indexListing sends listing data to the search index (best-effort, non-blocking).
+func (h *Handler) indexListing(ctx context.Context, l *Listing) {
+	if h.indexer == nil {
+		return
+	}
+	var thumb *string
+	if len(l.Images) > 0 {
+		u := l.Images[0].URL
+		thumb = &u
+	}
+	doc := SearchDoc{
+		ListingID:     l.ID,
+		Lang:          l.ContentLanguage,
+		Category:      l.Category,
+		Title:         l.Title,
+		Description:   l.Description,
+		PriceLKR:      l.PriceLKR,
+		ThumbnailURL:  thumb,
+		CreatedAtUnix: l.CreatedAt.Unix(),
+	}
+	if err := h.indexer.IndexListing(ctx, doc); err != nil {
+		log.Printf("listings: search index %s: %v", l.ID, err)
+	}
+}
+
 // mustUUID returns a random v4 UUID string; panics on entropy failure.
 func mustUUID() string {
 	var b [16]byte
@@ -392,3 +471,4 @@ func mustUUID() string {
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
+
