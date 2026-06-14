@@ -20,11 +20,29 @@ backend. See [`.ai/project.md`](.ai/project.md) for the full product + engineeri
 
 ```
 .
+├── api/        # openapi.yaml — the API contract (source of truth, ADR 0003)
 ├── frontend/   # Next.js app
 ├── backend/    # Go API + migrations
 ├── docs/       # engineering docs (secrets policy, etc.)
 └── .github/    # CI workflows
 ```
+
+## API contract
+
+[`api/openapi.yaml`](api/openapi.yaml) (OpenAPI 3.1) is the single source of
+truth for the HTTP API, per [ADR 0003](docs/decisions/0003-api-contract.md).
+Endpoints are versioned under `/api/v1`; every error uses the
+`{ "error": { "code", "message" } }` envelope. The frontend generates its typed
+client from the spec — no hand-written request types:
+
+```bash
+cd frontend
+npm run api:lint    # validate the spec is OpenAPI 3.1
+npm run api:gen     # regenerate src/lib/api/schema.ts from the spec
+npm run api:check   # fail if the committed types drift from the spec
+```
+
+Changing the contract is a Board-escalation item — see [`api/README.md`](api/README.md).
 
 ## Prerequisites
 
@@ -74,7 +92,8 @@ development. See [`docs/secrets.md`](docs/secrets.md) for the full policy.
 ## CI
 
 Every pull request runs the [CI gate](.github/workflows/ci.yml): backend build/vet/test,
-frontend lint/build, and a migrations apply check against a throwaway Postgres.
+frontend lint/build, an API-contract check (spec validation + typed-client drift), and a
+migrations apply check against a throwaway Postgres.
 
 ## Contributing
 
