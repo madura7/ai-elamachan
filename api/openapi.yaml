@@ -1,0 +1,623 @@
+openapi: 3.1.0
+
+info:
+  title: ElaMachan API
+  version: 1.0.0
+  description: |
+    Single source of truth for the ElaMachan (trilingual Sri Lankan classifieds)
+    HTTP contract, per **ADR 0003**. Both the Next.js frontend and the Go backend
+    derive from this file:
+
+    - **Frontend** generates a typed TS client/types from this spec
+      (`openapi-typescript` + `openapi-fetch`) — no hand-written request types.
+    - **Backend** treats this file as the authoritative contract; request/response
+      shapes must match it.
+
+    Conventions locked here (do not change without a contract change → **Board
+    escalation** per the merge policy):
+
+    - **Versioning:** every endpoint lives under `/api/v1` (the `servers` base).
+    - **Error envelope:** all non-2xx responses use `{ "error": { "code", "message" } }`.
+    - **Trilingual content:** user/taxonomy text carries `en` / `si` / `ta`
+      variants (ADR 0001); the seller authors in one `content_language`.
+    - **Auth:** phone + OTP primary (ADR 0002); protected endpoints take a bearer
+      session token.
+
+    Status of this v1 surface: `POST /listings/ai-draft` is **implemented**
+    (VER-58). The remaining paths (auth, listings, categories, search) are
+    **stubs** that lock the shape; each is finalized by its own feature issue and
+    is marked `x-status: stub` below.
+
+servers:
+  - url: /api/v1
+    description: Version 1. Relative to the deployed host (locked `/api/v1` prefix).
+
+tags:
+  - name: ai-assist
+    description: AI-assisted listing drafting (Claude). Draft only — never an action.
+  - name: auth
+    description: Phone + OTP authentication (ADR 0002). Stub.
+  - name: listings
+    description: Classified listings CRUD. Stub.
+  - name: categories
+    description: Localized category taxonomy (ADR 0001). Stub.
+  - name: search
+    description: Listing search (Meilisearch-backed). Stub.
+
+paths:
+  /listings/ai-draft:
+    post:
+      tags: [ai-assist]
+      operationId: createListingAiDraft
+      summary: Generate an AI-assisted listing draft
+      description: |
+        Generate a **draft** listing (trilingual title + description + a suggested
+        category) from a seller-supplied photo and/or keywords. Implemented in
+        VER-58.
+
+        This endpoint returns a draft only — it **never creates, prices, or
+        publishes** a listing. The seller reviews/edits the draft and then submits
+        a separate, authenticated `POST /listings`. Keywords and image contents
+        are treated as untrusted data (prompt-injection safe).
+
+        Rate limited per caller. Requires the AI-assist key to be provisioned on
+        the server; otherwise responds `503 ai_assist_unavailable`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                keywords:
+                  type: string
+                  maxLength: 2000
+                  description: |
+                    Optional free-text keywords describing the item (≤ 2 KB).
+                    Treated as untrusted data, never instructions.
+                image:
+                  type: string
+                  format: binary
+                  description: |
+                    Optional product photo (≤ 5 MiB; jpeg, png, webp, or gif).
+                    Resize to ~1000px long edge client-side before upload.
+              # At least one of keywords/image must be present; an empty request
+              # is rejected with 400 empty_request.
+            encoding:
+              image:
+                contentType: image/jpeg, image/png, image/webp, image/gif
+      responses:
+        "200":
+          description: A generated draft listing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingDraft"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          description: Keywords or image exceed the size limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Unsupported image media type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          description: Upstream AI provider failed to produce a draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: AI-assist is not configured / spend cap reached on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/otp/request:
+    post:
+      tags: [auth]
+      operationId: requestOtp
+      summary: Request an OTP challenge for a phone number
+      x-status: stub
+      description: |
+        **Stub** — finalized by the auth implementation issue (Board-escalation,
+        ADR 0002). Sends a one-time code to the given phone number and returns a
+        challenge handle. Rate limited per phone and per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "202":
+          description: OTP dispatched (or accepted for dispatch).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpChallenge"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /auth/otp/verify:
+    post:
+      tags: [auth]
+      operationId: verifyOtp
+      summary: Verify an OTP code and start a session
+      x-status: stub
+      description: |
+        **Stub** — finalized by the auth implementation issue. Verifies the code
+        for a challenge and, on success, returns a bearer session token and the
+        authenticated user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerify"
+      responses:
+        "200":
+          description: Verified; session established.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /categories:
+    get:
+      tags: [categories]
+      operationId: listCategories
+      summary: List the localized category taxonomy
+      x-status: stub
+      description: |
+        **Stub** — finalized by the taxonomy issue (ADR 0001). Returns the
+        category tree with names resolved to the requested language via the
+        `requested → en → any` fallback chain.
+      parameters:
+        - $ref: "#/components/parameters/LangQuery"
+      responses:
+        "200":
+          description: The category list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+
+  /listings:
+    get:
+      tags: [listings]
+      operationId: listListings
+      summary: List published listings
+      x-status: stub
+      description: "**Stub** — finalized by the listings issue. Paginated browse/filter."
+      parameters:
+        - $ref: "#/components/parameters/LangQuery"
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CategorySlug"
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          description: A page of listing summaries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingPage"
+    post:
+      tags: [listings]
+      operationId: createListing
+      summary: Create a listing
+      x-status: stub
+      description: |
+        **Stub** — finalized by the listings issue. Creates a listing authored in
+        a single `content_language`. Requires authentication. A draft from
+        `/listings/ai-draft` is never auto-created; the seller submits here.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListingCreate"
+      responses:
+        "201":
+          description: Listing created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /listings/{id}:
+    get:
+      tags: [listings]
+      operationId: getListing
+      summary: Get a single listing
+      x-status: stub
+      description: "**Stub** — finalized by the listings issue."
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/LangQuery"
+      responses:
+        "200":
+          description: The listing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /search:
+    get:
+      tags: [search]
+      operationId: searchListings
+      summary: Search listings
+      x-status: stub
+      description: |
+        **Stub** — finalized by the search issue (Meilisearch). Full-text search
+        over localized listing fields with optional category filter.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: The search query.
+        - $ref: "#/components/parameters/LangQuery"
+        - name: category
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/CategorySlug"
+        - $ref: "#/components/parameters/PageQuery"
+        - $ref: "#/components/parameters/PageSizeQuery"
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingPage"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Session token issued by `POST /auth/otp/verify` (ADR 0002). The exact
+        token format (signed JWT vs opaque session) is finalized in the auth
+        implementation task.
+
+  parameters:
+    LangQuery:
+      name: lang
+      in: query
+      required: false
+      description: "Preferred response language; falls back `requested → en → any` (ADR 0001)."
+      schema:
+        $ref: "#/components/schemas/Lang"
+    PageQuery:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSizeQuery:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  responses:
+    BadRequest:
+      description: The request was malformed or failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication is required or failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many requests; slow down.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      description: |
+        Canonical error envelope (ADR 0003). EVERY non-2xx response uses this
+        shape. `code` is a stable, machine-readable slug (e.g. `rate_limited`,
+        `ai_assist_unavailable`); `message` is human-readable and may change.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable description (not for branching on).
+      additionalProperties: false
+
+    Lang:
+      type: string
+      description: Supported content/UI language (ADR 0001).
+      enum: [en, si, ta]
+
+    Trilingual:
+      type: object
+      description: A text value in English, Sinhala, and Tamil (ADR 0001).
+      required: [en, si, ta]
+      properties:
+        en:
+          type: string
+        si:
+          type: string
+        ta:
+          type: string
+      additionalProperties: false
+
+    CategorySlug:
+      type: string
+      description: |
+        Closed category taxonomy slug. Single source of truth is the backend
+        `Categories` set (server-re-validated on AI drafts). Extended via the
+        taxonomy issue, not ad hoc.
+      enum:
+        - electronics
+        - vehicles
+        - property
+        - home_garden
+        - fashion
+        - mobile_phones
+        - services
+        - jobs
+        - pets
+        - other
+
+    ListingDraft:
+      type: object
+      description: |
+        AI-generated draft listing returned by `POST /listings/ai-draft`. Note
+        what is deliberately ABSENT: price, publish, featured, urgent — the model
+        has no field to escalate into. The draft is editor input only.
+      required: [category_suggestion, title, description, needs_human_review]
+      properties:
+        category_suggestion:
+          $ref: "#/components/schemas/CategorySlug"
+        title:
+          $ref: "#/components/schemas/Trilingual"
+        description:
+          $ref: "#/components/schemas/Trilingual"
+        needs_human_review:
+          type: boolean
+          description: |
+            True when the model could not confidently draft (unreadable/off-topic
+            photo, or a category that failed server-side re-validation).
+        review_note:
+          type: string
+          description: Brief reviewer-facing note; present when needs_human_review is true.
+      additionalProperties: false
+
+    OtpRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          description: Phone number; normalized to E.164 server-side (ADR 0002).
+          example: "+94771234567"
+        purpose:
+          type: string
+          enum: [signup, login]
+          default: login
+      additionalProperties: false
+
+    OtpChallenge:
+      type: object
+      required: [challenge_id, expires_at]
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    OtpVerify:
+      type: object
+      required: [challenge_id, code]
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          description: The OTP code the user received.
+      additionalProperties: false
+
+    Session:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: Bearer session token (see bearerAuth).
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: "#/components/schemas/User"
+      additionalProperties: false
+
+    User:
+      type: object
+      required: [id, display_name, preferred_language]
+      properties:
+        id:
+          type: string
+          format: uuid
+        phone:
+          type: [string, "null"]
+          description: E.164 phone number (nullable for future email-only users).
+        display_name:
+          type: string
+        preferred_language:
+          $ref: "#/components/schemas/Lang"
+      additionalProperties: false
+
+    Category:
+      type: object
+      description: A taxonomy category with its name resolved to the requested language.
+      required: [slug, name]
+      properties:
+        slug:
+          $ref: "#/components/schemas/CategorySlug"
+        name:
+          type: string
+          description: Localized display name (fallback-resolved).
+        parent_slug:
+          type: [string, "null"]
+        sort_order:
+          type: integer
+      additionalProperties: false
+
+    ListingCreate:
+      type: object
+      required: [category, content_language, title, description]
+      properties:
+        category:
+          $ref: "#/components/schemas/CategorySlug"
+        content_language:
+          $ref: "#/components/schemas/Lang"
+        title:
+          type: string
+          description: Authored in the single content_language.
+        description:
+          type: string
+        price_lkr:
+          type: [integer, "null"]
+          description: Optional asking price in LKR. Set by the seller, never by AI.
+      additionalProperties: false
+
+    Listing:
+      type: object
+      description: |
+        A published listing. Title/description are returned resolved to the
+        requested language (with machine-translation fallback per ADR 0001).
+      required: [id, category, content_language, title, description, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/CategorySlug"
+        content_language:
+          $ref: "#/components/schemas/Lang"
+        title:
+          type: string
+        description:
+          type: string
+        price_lkr:
+          type: [integer, "null"]
+        translation_source:
+          type: [string, "null"]
+          enum: [human, machine, null]
+          description: Source of the returned localized text (ADR 0001).
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    ListingSummary:
+      type: object
+      required: [id, category, title, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          $ref: "#/components/schemas/CategorySlug"
+        title:
+          type: string
+        price_lkr:
+          type: [integer, "null"]
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    ListingPage:
+      type: object
+      description: A page of listing summaries.
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingSummary"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Total matching listings across all pages.
+      additionalProperties: false
