@@ -62,6 +62,56 @@ Read-only inventory + compute + record. Out of scope: optimization proposals
 
 ---
 
+## `agent_improve.py` — Agent Improver (VER-71 / 68b)
+
+**Read-only** — proposes, never applies. Reads the latest `audit-ledger` entry
+from VER-81 and emits a structured optimization-proposal entry to `improve-ledger`
+on the same issue.
+
+For each agent it evaluates:
+
+- **Model downgrade proposals** against the §3 role-assignment matrix. Only
+  emitted when the agent is over-provisioned. Each proposal carries:
+  `agentId`, `currentModel`, `proposedModel`, `rationale`,
+  `baselineWindowEvidence`, `classification`, and `syntheticCostDelta`.
+- **Drift flags** — failure-rate spikes, error status, stale-heartbeat events.
+- **Classification** per §7 + CEO always-escalate carve-outs:
+  - `auto-approve-eligible`: single-tier downgrade, non-CEO, non-trust-gate,
+    ≥7 days stable baseline, est. saving ≤ $50/mo.
+  - `escalate`: CEO, QA/Reviewer trust-gate, multi-tier jump, insufficient
+    baseline, saving > cap, or any prompt/behavior change.
+
+### Run
+
+```bash
+# Propose and write to the improve-ledger:
+python3 scripts/agent_improve.py
+
+# Preview without writing:
+python3 scripts/agent_improve.py --dry-run
+
+# Override the target ledger issue:
+python3 scripts/agent_improve.py --ledger-issue-id <issueId>
+```
+
+Idempotent for a given proposal date (re-run replaces the same-day entry).
+Stdlib only — no dependencies.
+
+### Daily routine
+
+Runs unattended via a Paperclip routine, scheduled after the Auditor
+(`0 9 * * *` UTC, 30 min after the 08:30 auditor). Each fire creates an
+execution issue assigned to the Engineer agent. See VER-71 for the routine id.
+
+### Baseline gate
+
+`auto-approve-eligible` requires `wowPctChange` to be defined (i.e. at least
+two complete 7-day windows). On the first few days of deployment `wowPctChange`
+will be `null` and all proposals will classify as `escalate` — this is expected
+and correct. The classification tightens as historical data accumulates.
+
+---
+
 ## `ceo_morning_report.py` — CEO Morning Report (VER-72 / 68d)
 
 Daily report generator. Reads the latest `audit-ledger` entry from VER-81 and
