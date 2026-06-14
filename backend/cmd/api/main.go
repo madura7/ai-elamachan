@@ -112,13 +112,18 @@ func main() {
 	if searchSvc == nil {
 		log.Println("search: disabled (no MEILI_URL)")
 	} else {
-		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := searchSvc.EnsureIndex(ensureCtx); err != nil {
-			log.Printf("search: index setup failed (search may be degraded): %v", err)
-		} else {
-			log.Println("search: index ready")
-		}
-		ensureCancel()
+		// Scoped in a closure so the timeout context is cancelled as soon as
+		// EnsureIndex returns (defer) rather than living for the whole process,
+		// and is released even if EnsureIndex panics.
+		func() {
+			ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer ensureCancel()
+			if err := searchSvc.EnsureIndex(ensureCtx); err != nil {
+				log.Printf("search: index setup failed (search may be degraded): %v", err)
+			} else {
+				log.Println("search: index ready")
+			}
+		}()
 	}
 	search.NewHandler(searchSvc).Register(mux)
 

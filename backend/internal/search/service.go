@@ -11,10 +11,12 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/meilisearch/meilisearch-go"
 )
@@ -63,17 +65,28 @@ func NewFromEnv(db *pgxpool.Pool, imageBaseURL string) (*Service, error) {
 // filterable + facetable category, and created_at sorting. Typo-tolerance and
 // prefix search are Meilisearch defaults, so no override is needed.
 //
-// Settings updates are async on the Meilisearch side; we enqueue them and do not
-// block on task completion. Safe to call on every boot — it is idempotent.
+// It is fully idempotent: UpdateSettings always runs, so config changes in a new
+// deploy take effect and re-running on an existing index is not an error.
 func (s *Service) EnsureIndex(ctx context.Context) error {
-	// CreateIndex is a no-op-ish if the index already exists (returns a task that
-	// fails harmlessly); GetIndex-then-create races, so just attempt create and
-	// ignore an "index_already_exists" outcome by not waiting on the task.
-	if _, err := s.client.CreateIndex(&meilisearch.IndexConfig{
+	// CreateIndex is asynchronous: Meilisearch returns a task (HTTP 202) even
+	// when the UID already exists — the task then fails harmlessly. A returned
+	// error is therefore a genuine transport/API failure, except an explicit
+	// index_already_exists, which we treat as benign so the settings update below
+	// still runs on every boot.
+	if task, err := s.client.CreateIndex(&meilisearch.IndexConfig{
 		Uid:        indexUID,
 		PrimaryKey: "id",
 	}); err != nil {
-		return fmt.Errorf("search: create index: %w", err)
+		if !isAlreadyExists(err) {
+			return fmt.Errorf("search: create index: %w", err)
+		}
+	} else if task != nil {
+		// Wait for a fresh creation to land so UpdateSettings cannot race an
+		// index that does not exist yet on first boot. (On a duplicate, the task
+		// reaches a failed terminal state and WaitForTask returns without error.)
+		if _, err := s.client.WaitForTask(task.TaskUID); err != nil {
+			return fmt.Errorf("search: wait for index creation: %w", err)
+		}
 	}
 
 	settings := &meilisearch.Settings{
@@ -89,6 +102,13 @@ func (s *Service) EnsureIndex(ctx context.Context) error {
 		return fmt.Errorf("search: update settings: %w", err)
 	}
 	return nil
+}
+
+// isAlreadyExists reports whether err is a Meilisearch index_already_exists API
+// error (the benign outcome of creating an index that is already present).
+func isAlreadyExists(err error) bool {
+	var apiErr *meilisearch.Error
+	return errors.As(err, &apiErr) && apiErr.MeilisearchApiError.Code == "index_already_exists"
 }
 
 // IndexListing (re)builds the search document for listingID from the DB and
@@ -138,8 +158,8 @@ func (s *Service) buildDocument(ctx context.Context, listingID string) (*Documen
 		WHERE l.id = $1 AND l.status = 'active'
 	`, listingID).Scan(&category, &contentLanguage, &priceCents, &createdAt, &thumbKey)
 	if err != nil {
-		// pgx.ErrNoRows means not active/not found → signal "remove from index".
-		if err.Error() == "no rows in result set" {
+		// Not active / not found → signal "remove from index".
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("search: load listing %s: %w", listingID, err)
@@ -197,7 +217,9 @@ func (s *Service) Search(ctx context.Context, p Params) (*Result, error) {
 		Facets:      []string{"category"},
 	}
 	if p.Category != "" {
-		req.Filter = fmt.Sprintf("category = %q", p.Category)
+		// Meilisearch filter syntax — not Go quoting; %q would emit Go-escaped
+		// strings. Category slugs are validated against ValidCategories upstream.
+		req.Filter = fmt.Sprintf(`category = "%s"`, p.Category)
 	}
 
 	resp, err := s.index.Search(p.Query, req)
