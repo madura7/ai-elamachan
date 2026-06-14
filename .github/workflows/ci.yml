@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (build / vet / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: false
+      - run: go vet ./...
+      - run: go build ./...
+      - run: go test ./...
+
+  frontend:
+    name: Frontend (lint / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - run: npm run lint --if-present
+      - run: npm run build --if-present
+
+  migrations:
+    name: Migrations (apply check)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: elamachan
+          POSTGRES_PASSWORD: elamachan
+          POSTGRES_DB: elamachan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elamachan -d elamachan"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | tar xz migrate
+          sudo mv migrate /usr/local/bin/migrate
+      - name: Apply migrations (up)
+        run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" up
+      - name: Roll back last migration (down 1)
+        run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" down 1

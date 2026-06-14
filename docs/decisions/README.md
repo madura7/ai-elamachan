@@ -9,6 +9,7 @@ so they are locked early and changed only via a new superseding ADR.
 | [0001](0001-multi-language-storage.md) | Multi-language storage (taxonomy, UI, listings) | Accepted |
 | [0002](0002-auth-method.md) | Authentication method (phone/OTP primary) | Accepted (direction); SMS provider pending Board |
 | [0003](0003-api-contract.md) | Frontend↔backend contract (REST + OpenAPI) | Accepted |
+| [0004](0004-anthropic-sdk-dependency.md) | Anthropic Go SDK for AI-assisted listings | Proposed (pending Board merge) |
 
 Source: [VER-38](/VER/issues/VER-38) baseline analysis, finding C1.
 Decision owner: Eng Manager. Decided: 2026-06-12.
