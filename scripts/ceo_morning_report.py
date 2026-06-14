@@ -52,6 +52,7 @@ MORNING_REPORT_KEY = "morning-report"
 ESCALATE_ROLES = {"ceo", "cto"}
 # Agents 2+ tiers over target on a "low-risk" role are auto-approve candidates.
 AUTO_APPROVE_TIERS_THRESHOLD = 2
+SESSION_LIMIT_FAIL_RATE_THRESHOLD = 0.15   # morning-report alert threshold (VER-107)
 
 # ── Ledger parsing ─────────────────────────────────────────────────────────────
 ENTRY_RE = re.compile(
@@ -138,6 +139,28 @@ def classify_optimization(agent: dict) -> tuple[str, str] | None:
         "escalate_ceo",
         rationale + " Borderline: 1-tier gap or explicit config — escalate for confirmation.",
     )
+
+
+def session_limit_alert_lines(fleet: dict) -> list[str]:
+    """Return alert section lines when the fleet fail rate exceeds the session-limit threshold."""
+    fail_rate = fleet.get("fleetFailureRateDay") or 0
+    if fail_rate <= SESSION_LIMIT_FAIL_RATE_THRESHOLD:
+        return []
+    return [
+        "### 🚨 Fleet Reliability Alert",
+        "",
+        f"> **Fleet fail rate: {fail_rate * 100:.1f}%** "
+        f"(threshold: {SESSION_LIMIT_FAIL_RATE_THRESHOLD * 100:.0f}%)",
+        "",
+        "**Likely cause:** `claude_local` adapter session-limit exhaustion — "
+        "all agents share one Claude.ai subscription quota; concurrent runs "
+        "compete for the same session slots and fail with `You've hit your session limit`.",
+        "",
+        "**Actions:** stagger routine schedules to reduce concurrent fires; "
+        "consider migrating high-frequency agents to `claude_api` adapter "
+        "(board approval required — see [VER-107](/VER/issues/VER-107)).",
+        "",
+    ]
 
 
 # ── Report rendering ───────────────────────────────────────────────────────────
@@ -234,6 +257,8 @@ def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
     lines.append(f"- **Agents audited:** {fleet.get('agentCount', len(per_agent))}")
     lines.append("")
 
+    lines.extend(session_limit_alert_lines(fleet))
+
     # Token + WoW trend table
     lines.append("### Token Usage & Week-over-Week Trend")
     lines.append("")
@@ -251,11 +276,21 @@ def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
     # Drift flags
     lines.append("### Drift & Reliability Flags")
     lines.append("")
+    lines.append(
+        "> **Confidence: directional only.** Per-agent run success/failure is not exposed "
+        "by the control plane (no `run.*` telemetry). Signals below are weak proxies: "
+        "stale-heartbeat event counts + agent error status. Treat ⚠️ flags as worth "
+        "investigating, not as confirmed failures."
+    )
+    lines.append("")
     if drift_agents:
         for name in drift_agents:
-            lines.append(f"- ⚠️ **{name}** — stale-heartbeat events or error status detected")
+            lines.append(
+                f"- ⚠️ **{name}** — stale-heartbeat or error status detected "
+                f"_(directional, low confidence)_"
+            )
     else:
-        lines.append("- No drift flags on this audit date.")
+        lines.append("- No drift signals on this audit date.")
     lines.append("")
 
     # Model-fit flags
@@ -363,12 +398,19 @@ def build_ceo_brief(entry: dict, company_id: str) -> tuple[str, str]:
         else "n/a"
     )
     drift_str = (
-        f"⚠️ Drift flags: {', '.join(drift_agents)}"
+        f"⚠️ Drift signals _(directional, low-confidence proxy)_: {', '.join(drift_agents)}"
         if drift_agents
-        else "✅ No drift flags"
+        else "✅ No drift signals"
     )
 
     title = f"CEO Morning Brief {date}"
+    fleet_fail_rate = fleet.get("fleetFailureRateDay") or 0
+    session_alert = (
+        [f"- 🚨 **FLEET ALERT: {fleet_fail_rate * 100:.1f}% fail rate** — "
+         f"session-limit exhaustion likely. See [VER-107](/VER/issues/VER-107)"]
+        if fleet_fail_rate > SESSION_LIMIT_FAIL_RATE_THRESHOLD
+        else []
+    )
     desc_lines = [
         f"## Morning Brief {date}",
         "",
@@ -379,10 +421,15 @@ def build_ceo_brief(entry: dict, company_id: str) -> tuple[str, str]:
         f"- **Fleet synthetic spend:** ${fleet['estCostUsdDay']:.4f} _(estimated, subscription token-derived — not billed)_",
         f"- **Fleet runs:** {ra.get('total', 0)} total "
         f"({ra.get('succeeded', 0)} ok / {ra.get('failed', 0)} failed — {fail_pct} fail rate)",
+        *session_alert,
         f"- **Model-fit:** {over_prov_count} agent(s) over-provisioned",
         f"- {drift_str}",
         f"- **Proposed optimisations:** {auto_approve_count} auto-approve-eligible, "
         f"{escalate_count} escalate-to-CEO",
+        "",
+        "> **Data quality:** drift/reliability signals are directional, low-confidence proxies "
+        "(stale-heartbeat events + error status; per-agent `run.*` telemetry not exposed). "
+        "Model-fit assessed only for agents with an explicit `adapterConfig.model`.",
         "",
         "### Links",
         "",
