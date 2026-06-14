@@ -15,6 +15,7 @@ import (
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
+	"github.com/madura7/ai-elamachan/backend/internal/search"
 	"github.com/madura7/ai-elamachan/backend/internal/storage"
 	"github.com/madura7/ai-elamachan/backend/internal/translate"
 )
@@ -100,8 +101,35 @@ func main() {
 	mux.Handle("/api/v1/images/",
 		http.StripPrefix("/api/v1/images/", http.FileServer(http.Dir(imgDir))))
 
+	// Search service (VER-130). Indexes localized listing fields on write and
+	// serves GET /api/v1/search. Disabled (nil) when MEILI_URL is unset: the
+	// route then returns 503 and listing writes skip indexing — the service
+	// still boots without Meilisearch provisioned.
+	searchSvc, err := search.NewFromEnv(db, imgBaseURL)
+	if err != nil {
+		log.Fatalf("search: %v", err)
+	}
+	if searchSvc == nil {
+		log.Println("search: disabled (no MEILI_URL)")
+	} else {
+		ensureCtx, ensureCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := searchSvc.EnsureIndex(ensureCtx); err != nil {
+			log.Printf("search: index setup failed (search may be degraded): %v", err)
+		} else {
+			log.Println("search: index ready")
+		}
+		ensureCancel()
+	}
+	search.NewHandler(searchSvc).Register(mux)
+
 	listingStore := listings.NewStore(db, imgBaseURL)
-	listings.NewHandler(listingStore, stor, translator).Register(mux)
+	// searchSvc satisfies listings.SearchIndexer; a nil *search.Service must be
+	// passed as a typed nil interface so the handler's nil-guard works.
+	var indexer listings.SearchIndexer
+	if searchSvc != nil {
+		indexer = searchSvc
+	}
+	listings.NewHandler(listingStore, stor, translator, indexer).Register(mux)
 
 	log.Printf("elamachan-backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {

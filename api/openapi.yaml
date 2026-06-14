@@ -405,17 +405,19 @@ paths:
       tags: [search]
       operationId: searchListings
       summary: Search listings
-      x-status: stub
       description: |
-        **Stub** — finalized by the search issue (Meilisearch). Full-text search
-        over localized listing fields with optional category filter.
+        Full-text search over localized listing fields (Meilisearch, VER-130).
+        Supports prefix / as-you-type matching, typo-tolerance, and Sinhala/Tamil
+        queries out of the box (VER-41 spike). `lang` selects which localized
+        title is shown for each hit; `category` filters results. The response is
+        a page of summaries plus a `facets.category` distribution for the query.
       parameters:
         - name: q
           in: query
           required: true
           schema:
             type: string
-          description: The search query.
+          description: The search query (prefix / as-you-type supported).
         - $ref: "#/components/parameters/LangQuery"
         - name: category
           in: query
@@ -430,7 +432,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListingPage"
+                $ref: "#/components/schemas/SearchResultPage"
 
 components:
   securitySchemes:
@@ -785,4 +787,35 @@ components:
         total:
           type: integer
           description: Total matching listings across all pages.
+      additionalProperties: false
+
+    SearchResultPage:
+      type: object
+      description: |
+        A page of search-result summaries plus the category facet distribution
+        for the query (VER-130). Shape matches ListingPage with an added
+        `facets` object so the same card component can render search results.
+      required: [items, page, pageSize, total, facets]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListingSummary"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          description: Total matching listings across all pages.
+        facets:
+          type: object
+          description: >-
+            Category facet counts for the current query, keyed by CategorySlug.
+            Reflects matches across all pages, not just the returned page.
+          additionalProperties:
+            type: integer
+          example:
+            vehicles: 3
+            property: 1
       additionalProperties: false
