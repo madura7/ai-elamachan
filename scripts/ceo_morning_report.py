@@ -249,11 +249,11 @@ def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
     lines.append("")
 
     # Drift flags
-    lines.append("### Drift & Reliability Flags")
+    lines.append("### Drift & Reliability Flags _(directional only / low-confidence proxy)_")
     lines.append("")
     if drift_agents:
         for name in drift_agents:
-            lines.append(f"- ⚠️ **{name}** — stale-heartbeat events or error status detected")
+            lines.append(f"- ⚠️ **{name}** — stale-heartbeat events or error status detected _(directional only / low-confidence)_")
     else:
         lines.append("- No drift flags on this audit date.")
     lines.append("")
@@ -363,7 +363,7 @@ def build_ceo_brief(entry: dict, company_id: str) -> tuple[str, str]:
         else "n/a"
     )
     drift_str = (
-        f"⚠️ Drift flags: {', '.join(drift_agents)}"
+        f"⚠️ Drift flags (directional only / low-confidence proxy): {', '.join(drift_agents)}"
         if drift_agents
         else "✅ No drift flags"
     )
@@ -373,6 +373,7 @@ def build_ceo_brief(entry: dict, company_id: str) -> tuple[str, str]:
         f"## Morning Brief {date}",
         "",
         "> All costs are *estimated (subscription, token-derived)* — not billed spend.",
+        "> Drift & Reliability signals are **directional only / low-confidence proxies** derived from heartbeat and status fields; treat as a prompt to investigate, not a definitive reliability verdict.",
         "",
         "### Headlines",
         "",

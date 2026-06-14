@@ -83,7 +83,7 @@ def model_tier(model_id: str) -> str:
     return "opus"  # unknown -> treat as top tier (conservative)
 
 
-# Harness default when an agent has empty adapterConfig (= today's fleet state).
+# Harness default used as cost-estimation fallback when adapterConfig.model is empty (model-fit marked unverified).
 HARNESS_DEFAULT_MODEL = "claude-opus-4-8"
 
 # §3 model-assignment matrix: role -> (min-viable model id, escalation note).
