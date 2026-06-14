@@ -188,6 +188,13 @@ def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
         for a in per_agent
         if a.get("modelFit", {}).get("over_provisioned")
     ]
+    # Agents with empty adapterConfig.model — model unverified, may warrant explicit config.
+    unverified_fit = [
+        (a["name"], a.get("role", "?"), a.get("modelFit", {}).get("target_model") or "n/a")
+        for a in per_agent
+        if a.get("modelFit", {}).get("over_provisioned") is None
+        and not a.get("modelFit", {}).get("configured_explicitly")
+    ]
 
     # --- Optimization proposals ---
     auto_approve = []
@@ -258,8 +265,20 @@ def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
         for name, tiers, target in over_prov:
             lines.append(f"- **{name}**: {tiers} tier(s) over target (recommend → {target})")
     else:
-        lines.append("- No over-provisioned agents.")
+        lines.append("- No over-provisioned agents (explicitly configured).")
     lines.append("")
+    if unverified_fit:
+        lines.append(
+            "> **Unconfigured agents** — `adapterConfig.model` is empty; "
+            "actual running model is harness-managed and unverified. "
+            "Set `adapterConfig.model` explicitly to enable model-fit tracking."
+        )
+        lines.append("")
+        lines.append("| Agent | Role | Matrix target |")
+        lines.append("|---|---|---|")
+        for name, role, target in unverified_fit:
+            lines.append(f"| {name} | {role} | {target} |")
+        lines.append("")
 
     # Optimization proposals
     lines.append("### Proposed Optimisations")

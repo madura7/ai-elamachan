@@ -93,6 +93,7 @@ ROLE_MATRIX = {
     "engineer":   ("claude-sonnet-4-6", "Opus 4.7 for flagged-hard issues / security / large diffs"),
     "qa":         ("claude-sonnet-4-6", "Haiku 4.6 for smoke/routine; Sonnet 4.6 for exploratory"),
     "researcher": ("claude-sonnet-4-6", "Fable 5 for deep research"),
+    "designer":   ("claude-sonnet-4-6", "Opus for complex creative / brand-critical work"),
 }
 
 
@@ -211,14 +212,20 @@ def build_entry(company: str, target: dt.date) -> dict:
         failure_rate = round(min(1.0, failure_signals / c7_runs), 3) if c7_runs else None
         success_rate = round(1.0 - failure_rate, 3) if failure_rate is not None else None
 
-        # Model-fit: compare effective tier vs role's matrix target tier.
+        # Model-fit: compare configured tier vs role's matrix target tier.
+        # Only flag over-provisioned when adapterConfig.model is explicitly set —
+        # empty config means the harness manages the model and the actual running
+        # model is unverified; we cannot safely conclude over-provisioning.
         target_model, escalation = ROLE_MATRIX.get(role, (None, None))
-        eff_tier = model_tier(effective_model)
-        eff_rank = TIER_RANK[eff_tier]
         fit = {"target_model": target_model, "effective_model": effective_model,
                "configured_explicitly": configured_model is not None,
                "escalation": escalation}
-        if target_model:
+        if not configured_model:
+            # Model unverified — harness-managed, not safe to assess fit.
+            fit["over_provisioned"] = None
+            fit["tiers_above_target"] = None
+        elif target_model:
+            eff_rank = TIER_RANK[model_tier(configured_model)]
             tgt_rank = TIER_RANK[model_tier(target_model)]
             fit["over_provisioned"] = eff_rank > tgt_rank
             fit["tiers_above_target"] = max(0, eff_rank - tgt_rank)
@@ -283,7 +290,7 @@ def build_entry(company: str, target: dt.date) -> dict:
             "Real billed cost unavailable: fleet runs claude_local subscription runs (costCents=0). All costs are synthetic/token-derived.",
             "Per-agent run success/failure is not exposed (no run.* events); reliability fields are derived proxies (low confidence).",
             f"Drift mining covers recent activity only (oldest event seen: {activity_oldest}).",
-            "Agents with empty adapterConfig.model are attributed to the harness default (claude-opus-4-8) for cost + model-fit.",
+            "Agents with empty adapterConfig.model use the harness default for synthetic cost only; model-fit is marked 'unverified' (over_provisioned=null) since the actual running model cannot be confirmed from adapterConfig alone.",
         ],
         "perAgent": per_agent,
     }
