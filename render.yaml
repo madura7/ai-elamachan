@@ -1,0 +1,64 @@
+# Render blueprint — ElaMachan backend
+# https://render.com/docs/blueprint-spec
+#
+# Single free Web Service: Go API + Meilisearch v1.8 co-located.
+# entrypoint.sh runs migrate → seed → api on every cold start.
+#
+# ── RAM note ──────────────────────────────────────────────────────────────
+# Render free = 512 MB shared by Go API + Meilisearch.
+# Meilisearch v1.8 idles at ~50–80 MB with a small index; the seed is tiny
+# (~30 listings). If the service OOMs, move Meilisearch to a second free
+# Render service, set MEILI_URL to point to it, and remove the in-process
+# meilisearch lines from entrypoint.sh.
+#
+# ── Redis TLS ─────────────────────────────────────────────────────────────
+# go-redis/v9's redis.ParseURL handles rediss:// natively — no code change
+# needed. Set REDIS_URL=rediss://:<token>@<host>:<port> (Upstash default
+# TLS port is 6380).
+#
+# ── Neon (Postgres) SSL ───────────────────────────────────────────────────
+# DATABASE_URL must include sslmode=require, e.g.:
+#   postgres://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
+
+services:
+  - type: web
+    name: elamachan-api
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    healthCheckPath: /healthz
+    envVars:
+      # Neon Postgres (must include sslmode=require)
+      - key: DATABASE_URL
+        sync: false
+
+      # Upstash Redis (use rediss:// scheme for TLS)
+      - key: REDIS_URL
+        sync: false
+
+      # Meilisearch — co-located; do not change unless split to a separate service
+      - key: MEILI_URL
+        value: http://localhost:7700
+      - key: MEILI_MASTER_KEY
+        sync: false
+      - key: MEILI_ENV
+        value: production
+
+      # Auth
+      - key: JWT_SECRET
+        sync: false
+      - key: SMS_MODE
+        value: dev
+      - key: OTP_EXPIRY_MINUTES
+        value: "10"
+
+      # API server
+      - key: BACKEND_PORT
+        value: "8080"
+      - key: APP_ENV
+        value: production
+
+      # AI-assist (optional — service boots without it and returns 503 on /api/listings/ai-draft)
+      - key: ANTHROPIC_API_KEY
+        sync: false

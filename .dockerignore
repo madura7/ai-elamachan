@@ -1,0 +1,19 @@
+# Exclude everything not needed for the Docker build.
+# The build only needs: backend/ (Go source + migrations) and entrypoint.sh.
+
+.git
+.github
+.gocache
+.ai
+docs
+scripts
+api
+frontend
+redocly.yaml
+README.md
+Makefile
+docker-compose.yml
+.env
+.env.*
+*.md
+backend/seed
