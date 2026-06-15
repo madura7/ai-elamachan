@@ -2,24 +2,33 @@
   "name": "elamachan-frontend",
   "version": "0.1.0",
   "private": true,
+  "description": "ElaMachan frontend — Next.js 15 App Router, TypeScript, Tailwind CSS",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "api:gen": "openapi-typescript ../api/openapi.yaml -o src/lib/api/schema.ts",
+    "api:check": "npm run api:gen && git diff --exit-code -- src/lib/api/schema.ts || (echo 'Generated API types are out of sync with api/openapi.yaml. Run: npm run api:gen' && exit 1)"
   },
   "dependencies": {
     "next": "15.5.19",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "openapi-fetch": "0.13.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
-    "@types/node": "^20.19.43",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@redocly/cli": "1.25.11",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10.4.21",
     "eslint": "^9.39.4",
     "eslint-config-next": "15.5.19",
-    "typescript": "^5.9.3"
+    "openapi-typescript": "7.4.4",
+    "postcss": "^8.5.4",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
   }
 }
