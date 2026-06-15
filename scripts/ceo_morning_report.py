@@ -164,7 +164,7 @@ ENTRY_PARSE_RE = re.compile(
 )
 
 
-def render_report_entry(entry: dict, all_entries: dict[str, dict]) -> str:
+def render_report_entry(entry: dict) -> str:
     """Render one morning report entry as markdown."""
     date = entry["auditDate"]
     fleet = entry["fleet"]
@@ -338,7 +338,7 @@ def splice_report(existing_body: str | None, entry_md: str, date: str) -> str:
 
 # ── Comment helper ─────────────────────────────────────────────────────────────
 
-def build_ceo_brief(entry: dict, company_id: str) -> tuple[str, str]:
+def build_ceo_brief(entry: dict) -> tuple[str, str]:
     """Return (issue_title, issue_description) for a daily CEO brief issue."""
     date = entry["auditDate"]
     fleet = entry["fleet"]
@@ -458,19 +458,18 @@ def main() -> int:
     entry = entries[target_date]
 
     # 2. Render the report entry
-    entry_md = render_report_entry(entry, entries)
+    entry_md = render_report_entry(entry)
 
     if args.dry_run:
         print("=== REPORT ENTRY ===")
         print(entry_md)
         print("=== CEO BRIEF ISSUE ===")
-        company = os.environ["PAPERCLIP_COMPANY_ID"]
-        brief_title, brief_desc = build_ceo_brief(entry, company)
+        brief_title, brief_desc = build_ceo_brief(entry)
         print(f"Title: {brief_title}")
         print(brief_desc)
         return 0
 
-    # 4. Upsert the morning-report document
+    # 3. Upsert the morning-report document
     base_rev = None
     existing_body = None
     try:
@@ -498,9 +497,9 @@ def main() -> int:
     )
     print(f"Morning report updated: issue {args.report_issue_id} doc '{MORNING_REPORT_KEY}' (date {target_date}).")
 
-    # 5. Create a daily CEO brief issue (assigned to CEO) — idempotent per date
+    # 4. Create a daily CEO brief issue (assigned to CEO) — idempotent per date
     company = os.environ["PAPERCLIP_COMPANY_ID"]
-    brief_title, brief_desc = build_ceo_brief(entry, company)
+    brief_title, brief_desc = build_ceo_brief(entry)
     existing = api("GET", f"/api/companies/{company}/issues?q={urllib.parse.quote(brief_title)}")
     existing_list = existing if isinstance(existing, list) else (existing or {}).get("issues", [])
     duplicate = next(
