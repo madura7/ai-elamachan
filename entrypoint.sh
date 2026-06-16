@@ -9,6 +9,14 @@ set -e
 # ── 1. Migrations ──────────────────────────────────────────────────────────
 # DATABASE_URL must include sslmode=require for Neon.
 echo "[boot] Running migrations..."
+# If the database is in a dirty state (partially applied migration), reset to
+# the last clean version so the transactional migration can be re-applied.
+DIRTY_VERSION=$(migrate -path /migrations -database "$DATABASE_URL" version 2>&1 | grep -oP '^\d+(?= \(dirty\))' || true)
+if [ -n "$DIRTY_VERSION" ]; then
+  CLEAN_VERSION=$(( DIRTY_VERSION - 1 ))
+  echo "[boot] Dirty migration at version ${DIRTY_VERSION}, forcing reset to ${CLEAN_VERSION}..."
+  migrate -path /migrations -database "$DATABASE_URL" force "$CLEAN_VERSION"
+fi
 migrate -path /migrations -database "$DATABASE_URL" up
 echo "[boot] Migrations OK."
 
