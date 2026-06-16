@@ -1,0 +1,34 @@
+# Fly.io configuration for elamachan-api
+# Go API + Meilisearch co-located in a single machine.
+# Built from ./Dockerfile (multi-stage: go binary + meilisearch + migrate).
+# Secrets injected at runtime via `flyctl secrets set`.
+
+app = "elamachan-api"
+primary_region = "lax"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  BACKEND_PORT = "8080"
+  APP_ENV = "production"
+  MEILI_URL = "http://localhost:7700"
+  MEILI_ENV = "production"
+  SMS_MODE = "dev"
+  OTP_EXPIRY_MINUTES = "10"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 25
+    hard_limit = 50
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
