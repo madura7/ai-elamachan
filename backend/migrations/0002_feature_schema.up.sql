@@ -42,7 +42,10 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TYPE IF NOT EXISTS otp_purpose AS ENUM ('signup','login');
+DO $$ BEGIN
+  CREATE TYPE otp_purpose AS ENUM ('signup','login');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS otp_challenges (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -128,7 +131,10 @@ CREATE INDEX IF NOT EXISTS idx_listings_user_id ON listings (user_id);
 -- Category browse feed: active listings in a category, newest first.
 CREATE INDEX IF NOT EXISTS idx_listings_category_status_created ON listings (category_id, status, created_at DESC);
 
-CREATE TYPE IF NOT EXISTS listing_translation_source AS ENUM ('human','machine');
+DO $$ BEGIN
+  CREATE TYPE listing_translation_source AS ENUM ('human','machine');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS listing_translations (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
