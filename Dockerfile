@@ -27,21 +27,21 @@ RUN curl -fsSL \
     "https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz" \
     | tar xz -C /usr/local/bin migrate
 
-# ── Stage 3: Meilisearch binary ────────────────────────────────────────────
-FROM getmeili/meilisearch:v1.8 AS meilisearch
-
-# ── Stage 4: Runtime ───────────────────────────────────────────────────────
+# ── Stage 3: Runtime ───────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL \
+       "https://github.com/meilisearch/meilisearch/releases/download/v1.8.0/meilisearch-linux-amd64" \
+       -o /usr/local/bin/meilisearch \
+    && chmod +x /usr/local/bin/meilisearch
 
 COPY --from=gobuilder   /out/api                  /usr/local/bin/api
 COPY --from=gobuilder   /out/seed                 /usr/local/bin/seed
 COPY --from=migrate-dl  /usr/local/bin/migrate    /usr/local/bin/migrate
-COPY --from=meilisearch /bin/meilisearch          /usr/local/bin/meilisearch
 
 COPY backend/migrations /migrations
 COPY entrypoint.sh      /entrypoint.sh
