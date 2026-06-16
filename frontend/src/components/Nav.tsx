@@ -28,6 +28,9 @@ export default function Nav() {
           <Link href="/listings" className={linkClass("/listings")}>
             {authed ? "My Listings" : "Listings"}
           </Link>
+          <Link href="/search" className={linkClass("/search")}>
+            Search
+          </Link>
           <Link href="/sell/ai-assist" className={linkClass("/sell")}>
             Sell
           </Link>

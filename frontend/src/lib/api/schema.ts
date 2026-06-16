@@ -304,6 +304,11 @@ export interface components {
             category: components["schemas"]["CategorySlug"];
             title: string;
             price_lkr?: number | null;
+            /**
+             * Format: uri
+             * @description URL of the listing's primary thumbnail image, or null if none.
+             */
+            thumbnail_url?: string | null;
             /** Format: date-time */
             created_at: string;
         };
@@ -314,6 +319,10 @@ export interface components {
             pageSize: number;
             /** @description Total matching listings across all pages. */
             total: number;
+            /** @description Category facet counts returned by search endpoints (absent on listing-only endpoints). */
+            facets?: {
+                [key: string]: number;
+            };
         };
     };
     responses: {

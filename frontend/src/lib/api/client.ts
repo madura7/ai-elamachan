@@ -20,6 +20,7 @@ export type ListingDraft = components["schemas"]["ListingDraft"];
 export type Trilingual = components["schemas"]["Trilingual"];
 export type Listing = components["schemas"]["Listing"];
 export type ListingSummary = components["schemas"]["ListingSummary"];
+export type ListingPage = components["schemas"]["ListingPage"];
 export type Category = components["schemas"]["Category"];
 export type CategorySlug = components["schemas"]["CategorySlug"];
 export type Lang = components["schemas"]["Lang"];

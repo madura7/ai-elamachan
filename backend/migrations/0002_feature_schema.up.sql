@@ -26,7 +26,7 @@ BEGIN;
 -- Auth: users + OTP challenges (ADR 0002)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Nullable + UNIQUE: multiple NULLs are allowed in Postgres, so future
     -- email-only / OAuth users need no phone. E.164 is at most 16 chars ('+' + 15 digits).
@@ -42,9 +42,12 @@ CREATE TABLE users (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TYPE otp_purpose AS ENUM ('signup','login');
+DO $$ BEGIN
+  CREATE TYPE otp_purpose AS ENUM ('signup','login');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE otp_challenges (
+CREATE TABLE IF NOT EXISTS otp_challenges (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     phone_e164      VARCHAR(16) NOT NULL,
     -- Store a HASH of the OTP, never the plaintext code (ADR 0002).
@@ -57,15 +60,15 @@ CREATE TABLE otp_challenges (
 );
 
 -- Verify-path lookups fetch the latest live challenge for a phone.
-CREATE INDEX idx_otp_challenges_phone ON otp_challenges (phone_e164, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_otp_challenges_phone ON otp_challenges (phone_e164, created_at DESC);
 -- Supports cleanup / expiry sweeps.
-CREATE INDEX idx_otp_challenges_expires_at ON otp_challenges (expires_at);
+CREATE INDEX IF NOT EXISTS idx_otp_challenges_expires_at ON otp_challenges (expires_at);
 
 -- ---------------------------------------------------------------------------
 -- Taxonomy: categories + attributes, each with a translations companion (ADR 0001)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug        TEXT NOT NULL UNIQUE,
     parent_id   UUID REFERENCES categories (id) ON DELETE RESTRICT,
@@ -74,9 +77,9 @@ CREATE TABLE categories (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_categories_parent_id ON categories (parent_id);
+CREATE INDEX IF NOT EXISTS idx_categories_parent_id ON categories (parent_id);
 
-CREATE TABLE category_translations (
+CREATE TABLE IF NOT EXISTS category_translations (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     category_id UUID NOT NULL REFERENCES categories (id) ON DELETE CASCADE,
     lang        CHAR(2) NOT NULL CHECK (lang IN ('si','ta','en')),
@@ -85,9 +88,9 @@ CREATE TABLE category_translations (
 );
 
 -- "List categories in <lang>, ordered by localized name" is a hot path.
-CREATE INDEX idx_category_translations_lang_name ON category_translations (lang, name);
+CREATE INDEX IF NOT EXISTS idx_category_translations_lang_name ON category_translations (lang, name);
 
-CREATE TABLE attributes (
+CREATE TABLE IF NOT EXISTS attributes (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     key         TEXT NOT NULL UNIQUE,
     data_type   TEXT NOT NULL CHECK (data_type IN ('string','number','boolean','enum')),
@@ -95,7 +98,7 @@ CREATE TABLE attributes (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE attribute_translations (
+CREATE TABLE IF NOT EXISTS attribute_translations (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     attribute_id UUID NOT NULL REFERENCES attributes (id) ON DELETE CASCADE,
     lang         CHAR(2) NOT NULL CHECK (lang IN ('si','ta','en')),
@@ -103,13 +106,13 @@ CREATE TABLE attribute_translations (
     UNIQUE (attribute_id, lang)
 );
 
-CREATE INDEX idx_attribute_translations_lang ON attribute_translations (lang);
+CREATE INDEX IF NOT EXISTS idx_attribute_translations_lang ON attribute_translations (lang);
 
 -- ---------------------------------------------------------------------------
 -- Listings + translations + images (ADR 0001)
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE listings (
+CREATE TABLE IF NOT EXISTS listings (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
     category_id       UUID NOT NULL REFERENCES categories (id) ON DELETE RESTRICT,
@@ -124,13 +127,16 @@ CREATE TABLE listings (
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_listings_user_id ON listings (user_id);
+CREATE INDEX IF NOT EXISTS idx_listings_user_id ON listings (user_id);
 -- Category browse feed: active listings in a category, newest first.
-CREATE INDEX idx_listings_category_status_created ON listings (category_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_listings_category_status_created ON listings (category_id, status, created_at DESC);
 
-CREATE TYPE listing_translation_source AS ENUM ('human','machine');
+DO $$ BEGIN
+  CREATE TYPE listing_translation_source AS ENUM ('human','machine');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE listing_translations (
+CREATE TABLE IF NOT EXISTS listing_translations (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     listing_id    UUID NOT NULL REFERENCES listings (id) ON DELETE CASCADE,
     lang          CHAR(2) NOT NULL CHECK (lang IN ('si','ta','en')),
@@ -144,7 +150,7 @@ CREATE TABLE listing_translations (
     UNIQUE (listing_id, lang)
 );
 
-CREATE TABLE listing_images (
+CREATE TABLE IF NOT EXISTS listing_images (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     listing_id  UUID NOT NULL REFERENCES listings (id) ON DELETE CASCADE,
     -- Object store key (e.g. S3/GCS); CDN URL is derived at read time.
@@ -154,6 +160,6 @@ CREATE TABLE listing_images (
     UNIQUE (listing_id, sort_order)
 );
 
-CREATE INDEX idx_listing_images_listing_id ON listing_images (listing_id);
+CREATE INDEX IF NOT EXISTS idx_listing_images_listing_id ON listing_images (listing_id);
 
 COMMIT;

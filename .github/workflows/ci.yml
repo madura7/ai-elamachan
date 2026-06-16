@@ -13,6 +13,39 @@ permissions:
   contents: read
 
 jobs:
+  vercel-frontend:
+    name: Deploy frontend to Vercel
+    needs: [frontend]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g vercel@latest
+      - name: Pull Vercel env
+        run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build
+        run: vercel build ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy
+        id: deploy
+        run: echo "url=$(vercel deploy --prebuilt ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} --token=${{ secrets.VERCEL_TOKEN }})" >> $GITHUB_OUTPUT
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `Vercel preview: ${{ steps.deploy.outputs.url }}`
+            })
+
+
   backend:
     name: Backend (build / vet / test)
     runs-on: ubuntu-latest
@@ -73,3 +106,16 @@ jobs:
         run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" up
       - name: Roll back last migration (down 1)
         run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" down 1
+
+  deploy-backend:
+    name: Deploy backend to Fly.io
+    needs: [backend, frontend, migrations]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only --app elamachan-api
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
