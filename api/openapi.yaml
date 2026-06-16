@@ -599,6 +599,10 @@ components:
           type: string
         price_lkr:
           type: [integer, "null"]
+        thumbnail_url:
+          type: [string, "null"]
+          format: uri
+          description: URL of the listing's primary thumbnail image, or null if none.
         created_at:
           type: string
           format: date-time
@@ -620,4 +624,9 @@ components:
         total:
           type: integer
           description: Total matching listings across all pages.
+        facets:
+          type: object
+          description: Category facet counts returned by search endpoints (absent on listing-only endpoints).
+          additionalProperties:
+            type: integer
       additionalProperties: false
