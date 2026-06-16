@@ -94,7 +94,7 @@ function HomeContent() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="What are you looking for?"
                 aria-label="Search listings"
-                className="flex-1 border-0 bg-transparent text-body text-ink outline-none"
+                className="min-w-0 flex-1 border-0 bg-transparent text-body text-ink outline-none"
               />
               <Button type="submit" variant="secondary" size="sm">
                 Search

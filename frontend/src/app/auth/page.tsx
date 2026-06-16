@@ -20,7 +20,7 @@ function AuthForm() {
 
   return (
     <main className="flex items-center justify-center min-h-[80vh] px-4">
-      <div className="w-full max-w-sm panel p-6">
+      <div className="w-full min-w-0 max-w-sm panel p-6">
         <PhoneEntry
           onSuccess={handleOTPSent}
           locale={locale}

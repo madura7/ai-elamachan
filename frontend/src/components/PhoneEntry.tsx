@@ -71,7 +71,7 @@ export default function PhoneEntry({ onSuccess, locale, onLocaleChange }: Props)
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder={t(locale, "phonePlaceholder")}
-            className="flex-1 px-3 py-3 text-small outline-none bg-surface text-ink"
+            className="min-w-0 flex-1 px-3 py-3 text-small outline-none bg-surface text-ink"
             autoComplete="tel"
             required
           />
