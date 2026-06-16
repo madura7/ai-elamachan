@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api/client";
-import type { Category, ListingSummary, CategorySlug } from "@/lib/api/client";
+import { listCategories, listPublicListings } from "@/lib/api";
+import type { Category, ListingSummary, CategorySlug } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
@@ -28,29 +28,21 @@ export default function Home() {
   const [listingsLoading, setListingsLoading] = useState(true);
 
   useEffect(() => {
-    api.GET("/categories", { params: { query: { lang: locale } } }).then(
-      ({ data }) => {
-        if (data) setCategories(data);
-      }
-    );
+    listCategories(locale).then((data) => setCategories(data)).catch(() => {});
   }, [locale]);
 
   useEffect(() => {
     setListingsLoading(true);
-    api
-      .GET("/listings", {
-        params: {
-          query: {
-            lang: locale,
-            pageSize: 12,
-            ...(selectedCategory ? { category: selectedCategory } : {}),
-          },
-        },
-      })
-      .then(({ data }) => {
-        if (data) setListings(data.items);
+    listPublicListings({
+      lang: locale,
+      pageSize: 12,
+      ...(selectedCategory ? { category: selectedCategory } : {}),
+    })
+      .then((data) => {
+        setListings(data.items);
         setListingsLoading(false);
-      });
+      })
+      .catch(() => setListingsLoading(false));
   }, [locale, selectedCategory]);
 
   return (
