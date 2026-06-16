@@ -20,7 +20,7 @@ function AuthForm() {
 
   return (
     <main className="flex items-center justify-center min-h-[80vh] px-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-lg p-6">
+      <div className="w-full max-w-sm panel p-6">
         <PhoneEntry
           onSuccess={handleOTPSent}
           locale={locale}
@@ -36,7 +36,7 @@ export default function AuthPage() {
     <Suspense
       fallback={
         <main className="flex items-center justify-center min-h-[80vh]">
-          <p className="text-gray-400 text-sm">Loading…</p>
+          <p className="text-muted text-small">Loading…</p>
         </main>
       }
     >

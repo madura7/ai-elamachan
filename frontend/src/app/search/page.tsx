@@ -7,6 +7,7 @@ import { t } from "@/lib/i18n";
 import { api } from "@/lib/api/client";
 import type { ListingSummary, ListingPage, CategorySlug } from "@/lib/api/client";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import Button from "@/components/Button";
 
 const DEBOUNCE_MS = 350;
 const PAGE_SIZE = 20;
@@ -53,8 +54,8 @@ function ResultCard({
   locale: Locale;
 }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col">
-      <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
+    <div className="card overflow-hidden flex flex-col">
+      <div className="aspect-[4/3] bg-surface-2 flex items-center justify-center">
         {item.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -63,20 +64,20 @@ function ResultCard({
             className="w-full h-full object-cover"
           />
         ) : (
-          <span className="text-4xl text-gray-300">📦</span>
+          <span className="text-4xl text-muted">📦</span>
         )}
       </div>
       <div className="p-3 flex flex-col gap-1 flex-1">
-        <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">
+        <p className="text-caption text-accent font-medium uppercase tracking-wide">
           {CATEGORY_LABELS[item.category] ?? item.category}
         </p>
-        <h3 className="text-sm font-semibold text-gray-800 line-clamp-2 leading-snug">
+        <h3 className="text-small font-semibold text-ink line-clamp-2 leading-snug">
           {item.title}
         </h3>
-        <p className="text-sm font-bold text-gray-900 mt-auto pt-1">
+        <p className="price mt-auto pt-1">
           {formatPrice(item.price_lkr, locale)}
         </p>
-        <p className="text-xs text-gray-400">{formatDate(item.created_at)}</p>
+        <p className="text-caption text-muted">{formatDate(item.created_at)}</p>
       </div>
     </div>
   );
@@ -86,13 +87,13 @@ function LoadingSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-2xl shadow-sm overflow-hidden animate-pulse">
-          <div className="aspect-[4/3] bg-gray-200" />
+        <div key={i} className="card overflow-hidden animate-pulse">
+          <div className="aspect-[4/3] bg-surface-2" />
           <div className="p-3 space-y-2">
-            <div className="h-3 bg-gray-200 rounded w-1/2" />
-            <div className="h-4 bg-gray-200 rounded" />
-            <div className="h-4 bg-gray-200 rounded w-3/4" />
-            <div className="h-3 bg-gray-200 rounded w-1/3 mt-2" />
+            <div className="h-3 bg-surface-2 rounded w-1/2" />
+            <div className="h-4 bg-surface-2 rounded" />
+            <div className="h-4 bg-surface-2 rounded w-3/4" />
+            <div className="h-3 bg-surface-2 rounded w-1/3 mt-2" />
           </div>
         </div>
       ))}
@@ -198,14 +199,14 @@ function SearchContent() {
     : [];
 
   return (
-    <main className="min-h-screen bg-orange-50">
+    <main className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
-        <h1 className="text-lg font-bold text-orange-600 flex-shrink-0">
+      <header className="bg-surface border-b border-border px-4 py-3 flex items-center gap-3">
+        <h1 className="text-h3 font-bold text-ink flex-shrink-0">
           {t(locale, "appName")}
         </h1>
         <div className="flex-1 relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm">
             🔍
           </span>
           <input
@@ -214,7 +215,7 @@ function SearchContent() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t(locale, "searchPlaceholder")}
             autoFocus
-            className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:bg-white transition-colors"
+            className="w-full pl-9 pr-4 py-2 border border-border rounded-sm text-small bg-surface-2 focus:outline-none focus:ring-2 focus:ring-accent focus:bg-surface transition-colors"
             aria-label={t(locale, "searchPage")}
           />
           {query && (
@@ -222,7 +223,7 @@ function SearchContent() {
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink-2 text-lg leading-none"
             >
               ×
             </button>
@@ -232,8 +233,8 @@ function SearchContent() {
       </header>
 
       {/* Results lang selector — separate from UI lang */}
-      <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-2">
-        <span className="text-xs text-gray-500 flex-shrink-0">
+      <div className="bg-surface border-b border-border px-4 py-2 flex items-center gap-2">
+        <span className="text-caption text-muted flex-shrink-0">
           {t(locale, "resultSearchLang")}:
         </span>
         <div className="flex gap-1">
@@ -241,10 +242,10 @@ function SearchContent() {
             <button
               key={l}
               onClick={() => handleLangChange(l)}
-              className={`px-2 py-0.5 text-xs rounded font-medium transition-colors ${
+              className={`px-2 py-0.5 text-caption rounded font-medium transition-colors ${
                 lang === l
-                  ? "bg-orange-500 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  ? "bg-accent text-white"
+                  : "bg-surface-2 text-ink-2 hover:bg-border"
               }`}
             >
               {l === "en" ? "English" : l === "si" ? "සිංහල" : "தமிழ்"}
@@ -257,22 +258,22 @@ function SearchContent() {
         {/* Facets sidebar — show when we have results with facets */}
         {hasQuery && results && facetEntries.length > 0 && (
           <aside className="w-40 flex-shrink-0 hidden sm:block">
-            <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            <h2 className="text-caption font-semibold text-muted uppercase tracking-wide mb-2">
               {t(locale, "category")}
             </h2>
             <ul className="space-y-1">
               <li>
                 <button
                   onClick={() => handleCategoryChange("")}
-                  className={`w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors ${
+                  className={`w-full text-left text-small px-2 py-1.5 rounded-md transition-colors ${
                     category === ""
-                      ? "bg-orange-100 text-orange-700 font-semibold"
-                      : "text-gray-700 hover:bg-gray-100"
+                      ? "bg-accent-soft text-accent-700 font-semibold"
+                      : "text-ink-2 hover:bg-surface-2"
                   }`}
                 >
                   {t(locale, "allCategories")}
                   {results && (
-                    <span className="ml-1 text-xs text-gray-400">
+                    <span className="ml-1 text-caption text-muted">
                       ({results.total})
                     </span>
                   )}
@@ -282,14 +283,14 @@ function SearchContent() {
                 <li key={slug}>
                   <button
                     onClick={() => handleCategoryChange(slug === category ? "" : slug)}
-                    className={`w-full text-left text-sm px-2 py-1.5 rounded-lg transition-colors ${
+                    className={`w-full text-left text-small px-2 py-1.5 rounded-md transition-colors ${
                       category === slug
-                        ? "bg-orange-100 text-orange-700 font-semibold"
-                        : "text-gray-700 hover:bg-gray-100"
+                        ? "bg-accent-soft text-accent-700 font-semibold"
+                        : "text-ink-2 hover:bg-surface-2"
                     }`}
                   >
                     {CATEGORY_LABELS[slug] ?? slug}
-                    <span className="ml-1 text-xs text-gray-400">({count})</span>
+                    <span className="ml-1 text-caption text-muted">({count})</span>
                   </button>
                 </li>
               ))}
@@ -304,10 +305,10 @@ function SearchContent() {
             <div className="sm:hidden mb-3 flex gap-2 overflow-x-auto pb-1">
               <button
                 onClick={() => handleCategoryChange("")}
-                className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                className={`flex-shrink-0 text-caption px-3 py-1.5 rounded-pill border transition-colors ${
                   category === ""
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-white text-gray-600 border-gray-200"
+                    ? "bg-accent text-white border-accent"
+                    : "bg-surface text-ink-2 border-border"
                 }`}
               >
                 {t(locale, "allCategories")}
@@ -316,10 +317,10 @@ function SearchContent() {
                 <button
                   key={slug}
                   onClick={() => handleCategoryChange(slug === category ? "" : slug)}
-                  className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  className={`flex-shrink-0 text-caption px-3 py-1.5 rounded-pill border transition-colors ${
                     category === slug
-                      ? "bg-orange-500 text-white border-orange-500"
-                      : "bg-white text-gray-600 border-gray-200"
+                      ? "bg-accent text-white border-accent"
+                      : "bg-surface text-ink-2 border-border"
                   }`}
                 >
                   {CATEGORY_LABELS[slug] ?? slug} ({count})
@@ -330,12 +331,12 @@ function SearchContent() {
 
           {/* Result count */}
           {hasQuery && results && !loading && (
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-caption text-muted mb-3">
               {results.total} {t(locale, "results")}
               {category && (
                 <button
                   onClick={() => handleCategoryChange("")}
-                  className="ml-2 text-orange-500 hover:text-orange-700 underline"
+                  className="ml-2 text-accent hover:text-accent-700 underline"
                 >
                   {t(locale, "allCategories")} ×
                 </button>
@@ -347,7 +348,7 @@ function SearchContent() {
           {!hasQuery && !loading && (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <span className="text-5xl mb-4">🔍</span>
-              <p className="text-gray-500 text-base">{t(locale, "searchEmpty")}</p>
+              <p className="text-muted text-body">{t(locale, "searchEmpty")}</p>
             </div>
           )}
 
@@ -358,7 +359,7 @@ function SearchContent() {
           {error && !loading && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <span className="text-4xl mb-3">⚠️</span>
-              <p className="text-red-500 text-sm">{error}</p>
+              <p className="text-red-500 text-small">{error}</p>
             </div>
           )}
 
@@ -366,16 +367,16 @@ function SearchContent() {
           {hasQuery && !loading && !error && results && results.items.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
               <span className="text-5xl mb-4">🪹</span>
-              <p className="text-gray-700 font-semibold mb-1">
+              <p className="text-ink-2 font-semibold mb-1">
                 {t(locale, "searchNoResults")}
               </p>
-              <p className="text-gray-400 text-sm max-w-xs">
+              <p className="text-muted text-small max-w-xs">
                 {t(locale, "searchNoResultsHint")}
               </p>
               {category && (
                 <button
                   onClick={() => handleCategoryChange("")}
-                  className="mt-4 text-sm text-orange-500 hover:text-orange-700 underline"
+                  className="mt-4 text-small text-accent hover:text-accent-700 underline"
                 >
                   {t(locale, "allCategories")} ×
                 </button>
@@ -395,23 +396,25 @@ function SearchContent() {
               {/* Pagination */}
               {totalPages > 1 && (
                 <div className="mt-6 flex items-center justify-center gap-3">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="text-sm px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {t(locale, "prevPage")}
-                  </button>
-                  <span className="text-sm text-gray-500">
+                  </Button>
+                  <span className="text-small text-muted">
                     {t(locale, "page")} {page} / {totalPages}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page === totalPages}
-                    className="text-sm px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {t(locale, "nextPage")}
-                  </button>
+                  </Button>
                 </div>
               )}
             </>
@@ -426,8 +429,8 @@ export default function SearchPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-orange-50 flex items-center justify-center">
-          <p className="text-gray-400 text-sm">Loading…</p>
+        <main className="min-h-screen bg-background flex items-center justify-center">
+          <p className="text-muted text-small">Loading…</p>
         </main>
       }
     >

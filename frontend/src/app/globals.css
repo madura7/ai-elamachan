@@ -2,12 +2,195 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================
+   ElaMachan — New UI Theme (VER-240, approved on VER-239)
+   Light, premium marketplace. Yellow = brand/primary action,
+   Blue = trust/links/secondary action. Replaces orange theme.
+   Source of truth: design/ver-239/elamachan-redesign.html
+   ========================================================= */
 :root {
-  --background: #fff7ed;
-  --foreground: #1a1a1a;
+  /* Brand accents */
+  --c-yellow: #f5b301; /* primary / brand energy */
+  --c-yellow-600: #d99700; /* hover / pressed */
+  --c-yellow-soft: #fff3cd; /* tinted surface */
+  --c-blue: #2563eb; /* trust / secondary action */
+  --c-blue-700: #1d4ed8; /* hover / pressed */
+  --c-blue-soft: #eaf1fe; /* tinted surface */
+
+  /* Neutrals */
+  --c-bg: #fafaf9; /* page background */
+  --c-surface: #ffffff; /* cards / panels */
+  --c-surface-2: #f4f4f2; /* soft inset surface */
+  --c-ink: #1a1a1f; /* primary text / near-black */
+  --c-ink-2: #3f3f46; /* secondary text */
+  --c-muted: #71717a; /* meta / captions */
+  --c-border: #e7e6e2; /* hairlines */
+  --c-success: #15803d; /* price / positive */
+  --c-dark: #16161d; /* dark panels / footer */
+
+  /* Type scale */
+  --fs-display: 44px;
+  --fs-h2: 28px;
+  --fs-h3: 19px;
+  --fs-body: 15px;
+  --fs-sm: 13px;
+  --fs-xs: 11.5px;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --fs-display: 32px;
+    --fs-h2: 23px;
+  }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  /* ---------- Buttons ----------
+     Anchor buttons must keep their own label color and never inherit a
+     global link hover (the bug fixed in review: hero CTAs went blue /
+     lost contrast). Ghost-on-dark uses a translucent fill, not a light swap. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-transparent px-6 py-[11px] font-bold no-underline transition-all;
+    font-size: var(--fs-body);
+    cursor: pointer;
+  }
+  .btn:active {
+    transform: translateY(1px);
+  }
+  a.btn,
+  a.btn:hover,
+  a.btn:focus,
+  a.btn:visited {
+    text-decoration: none;
+  }
+  .btn-primary {
+    background: var(--c-yellow);
+    color: #20180a;
+    box-shadow: 0 1px 2px rgba(16, 16, 29, 0.06), 0 1px 1px rgba(16, 16, 29, 0.04);
+  }
+  .btn-primary:hover {
+    background: var(--c-yellow-600);
+    color: #20180a;
+    box-shadow: 0 4px 14px rgba(16, 16, 29, 0.08);
+  }
+  .btn-secondary {
+    background: var(--c-blue);
+    color: #fff;
+  }
+  .btn-secondary:hover {
+    background: var(--c-blue-700);
+    color: #fff;
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--c-ink);
+    border-color: var(--c-border);
+  }
+  .btn-ghost:hover {
+    background: var(--c-surface-2);
+    color: var(--c-ink);
+  }
+  /* Ghost button on a dark surface (e.g. the hero) — stays white &
+     readable on hover via a translucent fill, not a light swap. */
+  .btn-ghost-invert {
+    background: rgba(255, 255, 255, 0.06);
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+  .btn-ghost-invert:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.6);
+    color: #fff;
+  }
+  .btn-dark {
+    background: var(--c-ink);
+    color: #fff;
+  }
+  .btn-dark:hover {
+    background: #000;
+    color: #fff;
+  }
+  .btn-sm {
+    @apply rounded-sm px-4 py-[7px];
+    font-size: var(--fs-sm);
+  }
+  .btn-block {
+    @apply w-full;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ---------- Chips / badges ---------- */
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 font-bold uppercase;
+    font-size: var(--fs-xs);
+    letter-spacing: 0.03em;
+  }
+  .badge-cat {
+    background: var(--c-blue-soft);
+    color: var(--c-blue-700);
+  }
+  .badge-new {
+    background: var(--c-yellow-soft);
+    color: var(--c-yellow-600);
+  }
+  .chip-verify {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-3 py-1 font-bold;
+    background: var(--c-blue-soft);
+    color: var(--c-blue-700);
+    font-size: var(--fs-sm);
+  }
+  .price {
+    color: var(--c-success);
+    font-weight: 700;
+    font-size: var(--fs-h3);
+    letter-spacing: -0.01em;
+  }
+  .price-lg {
+    font-size: var(--fs-display);
+    line-height: 1;
+  }
+
+  /* ---------- Cards ---------- */
+  .card {
+    @apply relative flex flex-col overflow-hidden rounded-md border transition-all;
+    background: var(--c-surface);
+    border-color: var(--c-border);
+  }
+  .card:hover {
+    box-shadow: 0 18px 40px rgba(16, 16, 29, 0.14);
+    transform: translateY(-3px);
+    border-color: #dad9d4;
+  }
+
+  /* ---------- Panels ---------- */
+  .panel {
+    @apply rounded-md border p-6;
+    background: var(--c-surface);
+    border-color: var(--c-border);
+  }
+
+  /* ---------- Thumbnail tints (placeholder gradients) ---------- */
+  .t-blue {
+    background: linear-gradient(135deg, #dbe6ff, #eaf1fe);
+  }
+  .t-yellow {
+    background: linear-gradient(135deg, #fff0c2, #fff8e1);
+  }
+  .t-slate {
+    background: linear-gradient(135deg, #e7e9ee, #f3f4f7);
+  }
+  .t-mint {
+    background: linear-gradient(135deg, #d8f1e4, #ecf8f1);
+  }
 }

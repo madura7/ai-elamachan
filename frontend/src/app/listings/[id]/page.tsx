@@ -5,19 +5,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api/client";
 import type { Listing } from "@/lib/api/client";
-
-const CATEGORY_LABELS: Record<string, string> = {
-  electronics: "Electronics",
-  vehicles: "Vehicles",
-  property: "Property",
-  home_garden: "Home & Garden",
-  fashion: "Fashion",
-  mobile_phones: "Mobile Phones",
-  services: "Services",
-  jobs: "Jobs",
-  pets: "Pets",
-  other: "Other",
-};
+import { categoryMeta, formatPrice } from "@/lib/categories";
+import Button from "@/components/Button";
 
 export default function ListingDetailPage() {
   const params = useParams();
@@ -45,18 +34,14 @@ export default function ListingDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-orange-50 flex items-center justify-center">
-        <div className="max-w-2xl w-full mx-auto px-4 py-6 animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-24 mb-6" />
-          <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
-            <div className="h-3 bg-gray-200 rounded w-20" />
-            <div className="h-8 bg-gray-200 rounded w-3/4" />
-            <div className="h-6 bg-gray-200 rounded w-32" />
-            <div className="space-y-2 pt-2">
-              <div className="h-4 bg-gray-200 rounded" />
-              <div className="h-4 bg-gray-200 rounded" />
-              <div className="h-4 bg-gray-200 rounded w-5/6" />
-            </div>
+      <main className="mx-auto max-w-wrap px-6 py-8">
+        <div className="grid animate-pulse grid-cols-1 gap-8 md:grid-cols-[1.25fr_1fr]">
+          <div className="aspect-[4/3] rounded-md bg-surface-2" />
+          <div className="panel space-y-4">
+            <div className="h-3 w-20 rounded bg-surface-2" />
+            <div className="h-8 w-3/4 rounded bg-surface-2" />
+            <div className="h-10 w-40 rounded bg-surface-2" />
+            <div className="h-11 rounded bg-surface-2" />
           </div>
         </div>
       </main>
@@ -65,65 +50,101 @@ export default function ListingDetailPage() {
 
   if (error || !listing) {
     return (
-      <main className="min-h-screen bg-orange-50 flex flex-col items-center justify-center gap-4">
+      <main className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
         <span className="text-5xl">😕</span>
-        <p className="text-gray-700 font-semibold">{error ?? "Listing not found"}</p>
-        <Link
-          href="/listings"
-          className="text-sm text-orange-500 hover:text-orange-700 underline"
-        >
+        <p className="font-semibold text-ink">{error ?? "Listing not found"}</p>
+        <Link href="/listings" className="text-small font-medium text-accent">
           ← Back to listings
         </Link>
       </main>
     );
   }
 
+  const cat = categoryMeta(listing.category);
+
   return (
-    <main className="min-h-screen bg-orange-50">
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        <Link
-          href="/listings"
-          className="text-sm text-orange-500 hover:text-orange-700 underline mb-4 inline-block"
-        >
-          ← Back to listings
-        </Link>
+    <main className="mx-auto max-w-wrap px-6 py-8">
+      {/* Breadcrumb */}
+      <div className="mb-4 text-small text-muted">
+        <Link href="/" className="text-accent">
+          Home
+        </Link>{" "}
+        ·{" "}
+        <Link href={`/listings?category=${listing.category}`} className="text-accent">
+          {cat.label}
+        </Link>{" "}
+        · <span>{listing.title}</span>
+      </div>
 
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-6 flex flex-col gap-4">
-            <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">
-              {CATEGORY_LABELS[listing.category] ??
-                listing.category.replace("_", " ")}
-            </p>
+      <div className="grid grid-cols-1 items-start gap-8 md:grid-cols-[1.25fr_1fr]">
+        {/* Gallery + description */}
+        <div>
+          <div
+            className={`grid aspect-[4/3] place-items-center rounded-md border border-border text-[120px] ${cat.tint}`}
+          >
+            <span aria-hidden>{cat.icon}</span>
+          </div>
 
-            <h1 className="text-2xl font-bold text-gray-900 leading-tight">
+          {listing.description && (
+            <div className="panel desc mt-6">
+              <h4 className="mb-3 text-h3 font-bold">Description</h4>
+              <p className="whitespace-pre-line leading-relaxed text-ink-2">
+                {listing.description}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Detail pane */}
+        <div className="flex flex-col gap-4">
+          <div className="panel">
+            <span className="badge badge-cat">
+              {cat.icon} {cat.label}
+            </span>
+            <h1 className="mt-3 text-h2 font-bold leading-tight tracking-tight">
               {listing.title}
             </h1>
+            <div className="mt-2 flex flex-wrap gap-4 text-small text-muted">
+              <span>
+                🕒 Posted{" "}
+                {new Date(listing.created_at).toLocaleDateString(undefined, {
+                  day: "numeric",
+                  month: "long",
+                  year: "numeric",
+                })}
+              </span>
+            </div>
+            <div className="my-4">
+              <span className="price price-lg">{formatPrice(listing.price_lkr)}</span>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {/* Contact is gated behind auth (interactions require login). */}
+              <Button href="/auth" variant="primary" block>
+                💬 Message seller
+              </Button>
+              <Button href="/auth" variant="secondary" block>
+                💰 Make an offer
+              </Button>
+            </div>
+          </div>
 
-            <p className="text-xl font-bold text-gray-900">
-              {listing.price_lkr != null
-                ? `LKR ${listing.price_lkr.toLocaleString()}`
-                : "Price on request"}
-            </p>
-
-            {listing.description && (
+          {/* Safety / trust panel */}
+          <div
+            className="rounded-md border p-6"
+            style={{ background: "var(--c-blue-soft)", borderColor: "#CFE0FD" }}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-[22px]" aria-hidden>
+                🛡️
+              </span>
               <div>
-                <h2 className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wide">
-                  Description
-                </h2>
-                <p className="text-gray-700 whitespace-pre-line text-sm leading-relaxed">
-                  {listing.description}
+                <b className="text-accent-700">Stay safe on ElaMachan</b>
+                <p className="mt-1 text-small text-ink-2">
+                  Meet in a public place, inspect the item before paying, and never
+                  send advance payments.
                 </p>
               </div>
-            )}
-
-            <p className="text-xs text-gray-400 pt-2 border-t border-gray-100">
-              Listed{" "}
-              {new Date(listing.created_at).toLocaleDateString(undefined, {
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
-            </p>
+            </div>
           </div>
         </div>
       </div>

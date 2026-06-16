@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
   title: "ElaMachan | ඇළමාකාන් | எளமாகான்",
@@ -10,9 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-orange-50">
+      <body className="min-h-screen bg-background text-ink">
         <Nav />
         {children}
+        <Footer />
       </body>
     </html>
   );

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
+import Button from "@/components/Button";
 import {
   CATEGORY_SUGGESTIONS,
   emptyDraft,
@@ -167,9 +168,9 @@ export function AiAssistEditor({ locale }: Props) {
   return (
     <div className="editor space-y-4">
       {/* ---- Input form ---- */}
-      <section className="bg-white rounded-2xl shadow-sm p-5 space-y-4">
+      <section className="panel p-5 space-y-4">
         <div>
-          <label htmlFor="photo" className="text-xs font-medium text-gray-500 block mb-1">
+          <label htmlFor="photo" className="text-caption font-medium text-muted block mb-1">
             {t(locale, "photoLabel")}
           </label>
           <input
@@ -178,14 +179,14 @@ export function AiAssistEditor({ locale }: Props) {
             accept="image/*"
             onChange={onPhotoChange}
             disabled={busy}
-            className="text-sm text-gray-600"
+            className="text-small text-ink-2"
           />
-          <p className="text-xs text-gray-400 mt-1">{t(locale, "photoHint")}</p>
+          <p className="text-caption text-muted mt-1">{t(locale, "photoHint")}</p>
           {photoError && <p className="text-xs text-red-500 mt-1">{photoError}</p>}
           {photoPreview && (
             <div className="mt-2 flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photoPreview} alt="" width={80} className="rounded-lg object-cover" />
+              <img src={photoPreview} alt="" width={80} className="rounded-md object-cover" />
               <button
                 type="button"
                 onClick={removePhoto}
@@ -199,7 +200,7 @@ export function AiAssistEditor({ locale }: Props) {
         </div>
 
         <div>
-          <label htmlFor="keywords" className="text-xs font-medium text-gray-500 block mb-1">
+          <label htmlFor="keywords" className="text-caption font-medium text-muted block mb-1">
             {t(locale, "keywords")}
           </label>
           <textarea
@@ -209,27 +210,27 @@ export function AiAssistEditor({ locale }: Props) {
             placeholder={t(locale, "keywordsPlaceholder")}
             onChange={(e) => setKeywords(e.target.value)}
             disabled={busy}
-            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+            className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent resize-none"
           />
-          <p className="text-xs text-gray-400 mt-1">{t(locale, "keywordsHint")}</p>
+          <p className="text-caption text-muted mt-1">{t(locale, "keywordsHint")}</p>
         </div>
 
         {formError && <p className="text-xs text-red-500">{formError}</p>}
 
         <div className="flex items-center gap-3">
-          <button
+          <Button
             type="button"
+            variant="primary"
             onClick={generate}
             disabled={busy}
-            className="bg-orange-500 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
           >
             {hasDraft ? t(locale, "regenerate") : t(locale, "generate")}
-          </button>
+          </Button>
           {busy && (
             <button
               type="button"
               onClick={cancel}
-              className="text-sm text-gray-500 hover:text-gray-700"
+              className="text-small text-muted hover:text-ink-2"
             >
               {t(locale, "cancel")}
             </button>
@@ -237,12 +238,12 @@ export function AiAssistEditor({ locale }: Props) {
         </div>
 
         {status === "resizing" && (
-          <p className="text-xs text-gray-500">{t(locale, "resizing")}</p>
+          <p className="text-caption text-muted">{t(locale, "resizing")}</p>
         )}
         {status === "streaming" && (
-          <p className="text-xs text-gray-500" aria-live="polite">
+          <p className="text-caption text-muted" aria-live="polite">
             {t(locale, "generating")}{" "}
-            <span className="text-gray-400">{t(locale, "streamingHint")}</span>
+            <span className="text-muted">{t(locale, "streamingHint")}</span>
           </p>
         )}
       </section>
@@ -250,27 +251,27 @@ export function AiAssistEditor({ locale }: Props) {
       {/* ---- Draft editor ---- */}
       {hasDraft && (
         <section
-          className="bg-white rounded-2xl shadow-sm p-5 space-y-4"
+          className="panel p-5 space-y-4"
           aria-busy={status === "streaming"}
         >
           {status === "done" && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-3">
-              <strong className="text-sm text-green-800">{t(locale, "draftReadyTitle")}</strong>
-              <p className="text-xs text-green-700 mt-0.5">{t(locale, "draftReadyBody")}</p>
+            <div className="bg-green-50 border border-green-200 rounded-md p-3">
+              <strong className="text-small text-green-800">{t(locale, "draftReadyTitle")}</strong>
+              <p className="text-caption text-green-700 mt-0.5">{t(locale, "draftReadyBody")}</p>
             </div>
           )}
 
           {draft.needs_human_review && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3" role="alert">
-              <strong className="text-sm text-yellow-800">{t(locale, "reviewNeeded")}</strong>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3" role="alert">
+              <strong className="text-small text-yellow-800">{t(locale, "reviewNeeded")}</strong>
               {draft.review_note && (
-                <p className="text-xs text-yellow-700 mt-0.5">{draft.review_note}</p>
+                <p className="text-caption text-yellow-700 mt-0.5">{draft.review_note}</p>
               )}
             </div>
           )}
 
           <div>
-            <label htmlFor="category" className="text-xs font-medium text-gray-500 block mb-1">
+            <label htmlFor="category" className="text-caption font-medium text-muted block mb-1">
               {t(locale, "category")}
             </label>
             <input
@@ -280,23 +281,23 @@ export function AiAssistEditor({ locale }: Props) {
               onChange={(e) =>
                 setDraft((d) => ({ ...d, category_suggestion: e.target.value }))
               }
-              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
+              className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
             />
             <datalist id="category-options">
               {CATEGORY_SUGGESTIONS.map((c) => (
                 <option key={c} value={c} />
               ))}
             </datalist>
-            <p className="text-xs text-gray-400 mt-1">{t(locale, "categoryHint")}</p>
+            <p className="text-caption text-muted mt-1">{t(locale, "categoryHint")}</p>
           </div>
 
           <fieldset className="space-y-2">
-            <legend className="text-xs font-medium text-gray-500">{t(locale, "titleLabel")}</legend>
+            <legend className="text-caption font-medium text-muted">{t(locale, "titleLabel")}</legend>
             {LOCALES.map((lang) => (
               <div key={`title-${lang}`}>
                 <label
                   htmlFor={`title-${lang}`}
-                  className="text-xs text-gray-400 block mb-0.5"
+                  className="text-caption text-muted block mb-0.5"
                 >
                   {t(locale, LANG_LABEL_KEY[lang])}
                 </label>
@@ -305,19 +306,19 @@ export function AiAssistEditor({ locale }: Props) {
                   lang={lang}
                   value={draft.title[lang]}
                   onChange={(e) => updateTitle(lang, e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
                 />
               </div>
             ))}
           </fieldset>
 
           <fieldset className="space-y-2">
-            <legend className="text-xs font-medium text-gray-500">{t(locale, "descriptionLabel")}</legend>
+            <legend className="text-caption font-medium text-muted">{t(locale, "descriptionLabel")}</legend>
             {LOCALES.map((lang) => (
               <div key={`desc-${lang}`}>
                 <label
                   htmlFor={`desc-${lang}`}
-                  className="text-xs text-gray-400 block mb-0.5"
+                  className="text-caption text-muted block mb-0.5"
                 >
                   {t(locale, LANG_LABEL_KEY[lang])}
                 </label>
@@ -328,22 +329,22 @@ export function AiAssistEditor({ locale }: Props) {
                   value={draft.description[lang]}
                   onChange={(e) => updateDescription(lang, e.target.value)}
                   readOnly={status === "streaming"}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                  className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent resize-none"
                 />
               </div>
             ))}
           </fieldset>
 
           <div>
-            <button
+            <Button
               type="button"
+              variant="primary"
               disabled={status === "streaming"}
               onClick={() => window.alert(t(locale, "createListingNotWired"))}
-              className="bg-orange-500 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
             >
               {t(locale, "createListing")}
-            </button>
-            <p className="text-xs text-gray-400 mt-1">{t(locale, "createListingHint")}</p>
+            </Button>
+            <p className="text-caption text-muted mt-1">{t(locale, "createListingHint")}</p>
           </div>
         </section>
       )}

@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from "react";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import LanguageSwitcher from "./LanguageSwitcher";
+import Button from "@/components/Button";
 import { api } from "@/lib/api/client";
 import { setAuth } from "@/lib/auth";
 
@@ -104,9 +105,9 @@ export default function OTPEntry({
       </div>
 
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-orange-600">{t(locale, "appName")}</h1>
-        <p className="text-sm text-gray-600 mt-2">{t(locale, "enterOTP")}</p>
-        <p className="text-xs text-gray-400 mt-1">
+        <h1 className="text-h2 font-bold text-brand">{t(locale, "appName")}</h1>
+        <p className="text-small text-ink-2 mt-2">{t(locale, "enterOTP")}</p>
+        <p className="text-caption text-muted mt-1">
           {t(locale, "otpSentTo")} {phone}
         </p>
       </div>
@@ -123,29 +124,27 @@ export default function OTPEntry({
               value={d}
               onChange={(e) => handleChange(i, e.target.value)}
               onKeyDown={(e) => handleKeyDown(i, e)}
-              className="w-11 h-14 text-center text-xl font-bold border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+              className={`w-11 h-14 text-center text-xl font-bold rounded-md bg-surface text-ink border focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent ${
+                d ? "border-accent" : "border-border"
+              }`}
             />
           ))}
         </div>
-        {error && <p className="text-sm text-red-500 text-center">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-orange-500 text-white font-semibold text-sm hover:bg-orange-600 disabled:opacity-50 transition-colors"
-        >
+        {error && <p className="text-small text-red-500 text-center">{error}</p>}
+        <Button type="submit" variant="primary" block disabled={loading}>
           {loading ? t(locale, "verifying") : t(locale, "verify")}
-        </button>
+        </Button>
       </form>
 
-      <div className="flex flex-col items-center gap-2 text-sm">
+      <div className="flex flex-col items-center gap-2 text-small">
         <button
           onClick={handleResend}
           disabled={resending}
-          className="text-orange-600 hover:underline disabled:opacity-50"
+          className="text-accent hover:underline disabled:opacity-50"
         >
           {resending ? "…" : t(locale, "resend")}
         </button>
-        <button onClick={onBack} className="text-gray-500 hover:underline text-xs">
+        <button onClick={onBack} className="text-muted hover:underline text-caption">
           {t(locale, "backToPhone")}
         </button>
       </div>

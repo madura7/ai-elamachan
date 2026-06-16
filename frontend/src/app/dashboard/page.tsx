@@ -7,6 +7,7 @@ import type { User } from "@/lib/auth";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import Button from "@/components/Button";
 import {
   getMyListings,
   updateListing,
@@ -142,23 +143,23 @@ export default function DashboardPage() {
   if (!user) {
     return (
       <main className="flex items-center justify-center min-h-[80vh]">
-        <p className="text-gray-400 text-sm">{t(locale, "loading")}</p>
+        <p className="text-muted text-small">{t(locale, "loading")}</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-orange-50">
+    <main className="min-h-screen bg-background">
       {/* Page header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <span className="text-sm text-gray-600">
+      <div className="bg-surface border-b border-border px-4 py-3 flex items-center justify-between">
+        <span className="text-small text-ink-2">
           {t(locale, "welcome")}, {user.display_name || user.phone}
         </span>
         <div className="flex items-center gap-3">
           <LanguageSwitcher current={locale} onChange={setLocale} />
           <button
             onClick={handleSignOut}
-            className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+            className="text-caption text-muted hover:text-red-500 transition-colors"
           >
             {t(locale, "signOut")}
           </button>
@@ -167,77 +168,79 @@ export default function DashboardPage() {
 
       <div className="px-4 py-6 max-w-2xl mx-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-700">{t(locale, "myListings")}</h2>
-          <button
+          <h2 className="text-h3 font-semibold text-ink-2">{t(locale, "myListings")}</h2>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => router.push("/sell/ai-assist")}
-            className="text-xs bg-orange-500 text-white px-3 py-1.5 rounded-full hover:bg-orange-600 transition-colors"
           >
             + {t(locale, "createListing")}
-          </button>
+          </Button>
         </div>
 
         {loading && (
-          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
-            <p className="text-sm text-gray-400">{t(locale, "loading")}</p>
+          <div className="panel text-center">
+            <p className="text-small text-muted">{t(locale, "loading")}</p>
           </div>
         )}
 
         {!loading && loadError && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
+          <div className="bg-red-50 border border-red-200 rounded-md p-4 text-small text-red-600">
             {loadError}
           </div>
         )}
 
         {!loading && !loadError && listings.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
-            <p className="text-sm text-gray-400 mb-4">{t(locale, "noListings")}</p>
-            <button
+          <div className="panel p-8 text-center">
+            <p className="text-small text-muted mb-4">{t(locale, "noListings")}</p>
+            <Button
+              variant="primary"
               onClick={() => router.push("/sell/ai-assist")}
-              className="text-sm bg-orange-500 text-white px-4 py-2 rounded-full hover:bg-orange-600 transition-colors"
             >
               {t(locale, "createListing")}
-            </button>
+            </Button>
           </div>
         )}
 
         {!loading && !loadError && listings.length > 0 && (
           <div className="space-y-3">
             {listings.map((listing) => (
-              <div key={listing.id} className="bg-white rounded-2xl shadow-sm p-4 flex gap-3 items-start">
+              <div key={listing.id} className="card p-4 flex gap-3 items-start">
                 {listing.thumbnail_url ? (
                   <Image
                     src={listing.thumbnail_url}
                     alt={listing.title}
                     width={64}
                     height={64}
-                    className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-gray-100"
+                    className="w-16 h-16 rounded-md object-cover flex-shrink-0 bg-surface-2"
                   />
                 ) : (
-                  <div className="w-16 h-16 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                    <span className="text-2xl text-gray-300">📷</span>
+                  <div className="w-16 h-16 rounded-md bg-surface-2 flex-shrink-0 flex items-center justify-center">
+                    <span className="text-2xl text-muted">📷</span>
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{listing.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                  <p className="text-small font-semibold text-ink truncate">{listing.title}</p>
+                  <p className="text-caption text-muted mt-0.5 capitalize">
                     {listing.category.replace("_", " ")}
                   </p>
-                  <p className="text-sm text-orange-600 font-medium mt-1">
+                  <p className="price mt-1">
                     {listing.price_lkr != null
                       ? `${t(locale, "lkr")} ${listing.price_lkr.toLocaleString()}`
                       : t(locale, "priceOnRequest")}
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 flex-shrink-0">
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => openEdit(listing)}
-                    className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
                   >
                     {t(locale, "edit")}
-                  </button>
+                  </Button>
                   <button
                     onClick={() => { setDeleteTarget(listing); setDeleteError(null); }}
-                    className="text-xs px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
+                    className="text-caption px-3 py-1.5 border border-red-200 rounded-md hover:bg-red-50 text-red-500 transition-colors"
                   >
                     {t(locale, "delete")}
                   </button>
@@ -251,14 +254,14 @@ export default function DashboardPage() {
       {/* Edit modal */}
       {editState && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="font-semibold text-gray-800">{t(locale, "editListing")}</h3>
+          <div className="bg-surface w-full max-w-md rounded-lg shadow-lg p-6 space-y-4">
+            <h3 className="font-semibold text-ink">{t(locale, "editListing")}</h3>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "category")}</label>
+              <label className="text-caption font-medium text-muted block mb-1">{t(locale, "category")}</label>
               <select
                 value={editState.category}
                 onChange={(e) => setEditState((s) => s && { ...s, category: e.target.value })}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="w-full border border-border rounded-sm px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
               >
                 {CATEGORIES.map((c) => (
                   <option key={c.value} value={c.value}>{c.label}</option>
@@ -266,52 +269,54 @@ export default function DashboardPage() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "titleLabel")}</label>
+              <label className="text-caption font-medium text-muted block mb-1">{t(locale, "titleLabel")}</label>
               <input
                 type="text"
                 value={editState.title}
                 onChange={(e) => setEditState((s) => s && { ...s, title: e.target.value })}
                 maxLength={200}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="w-full border border-border rounded-sm px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "descriptionLabel")}</label>
+              <label className="text-caption font-medium text-muted block mb-1">{t(locale, "descriptionLabel")}</label>
               <textarea
                 value={editState.description}
                 onChange={(e) => setEditState((s) => s && { ...s, description: e.target.value })}
                 rows={4}
                 maxLength={5000}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
+                className="w-full border border-border rounded-sm px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent resize-none"
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "priceLKR")}</label>
+              <label className="text-caption font-medium text-muted block mb-1">{t(locale, "priceLKR")}</label>
               <input
                 type="number"
                 value={editState.price}
                 onChange={(e) => setEditState((s) => s && { ...s, price: e.target.value })}
                 min={0}
                 placeholder={t(locale, "pricePlaceholder")}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                className="w-full border border-border rounded-sm px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>
-            {editError && <p className="text-xs text-red-500">{editError}</p>}
+            {editError && <p className="text-caption text-red-500">{editError}</p>}
             <div className="flex gap-3 pt-2">
-              <button
+              <Button
+                variant="ghost"
+                block
                 onClick={() => setEditState(null)}
                 disabled={saving}
-                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 {t(locale, "cancel")}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
+                block
                 onClick={handleSave}
                 disabled={saving || !editState.title.trim() || !editState.category}
-                className="flex-1 bg-orange-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
               >
                 {saving ? t(locale, "saving") : t(locale, "save")}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -320,23 +325,24 @@ export default function DashboardPage() {
       {/* Delete confirmation */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="font-semibold text-gray-800">{t(locale, "confirmDelete")}</h3>
-            <p className="text-sm text-gray-500">&ldquo;{deleteTarget.title}&rdquo;</p>
-            <p className="text-xs text-gray-400">{t(locale, "confirmDeleteDesc")}</p>
-            {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
+          <div className="bg-surface w-full max-w-sm rounded-lg shadow-lg p-6 space-y-4">
+            <h3 className="font-semibold text-ink">{t(locale, "confirmDelete")}</h3>
+            <p className="text-small text-muted">&ldquo;{deleteTarget.title}&rdquo;</p>
+            <p className="text-caption text-muted">{t(locale, "confirmDeleteDesc")}</p>
+            {deleteError && <p className="text-caption text-red-500">{deleteError}</p>}
             <div className="flex gap-3">
-              <button
+              <Button
+                variant="ghost"
+                block
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
                 {t(locale, "cancel")}
-              </button>
+              </Button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="flex-1 bg-red-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                className="flex-1 bg-red-500 text-white rounded-sm py-2.5 text-small font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
               >
                 {deleting ? t(locale, "deleting") : t(locale, "delete")}
               </button>
@@ -346,7 +352,7 @@ export default function DashboardPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50 pointer-events-none">
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-dark text-white text-small px-4 py-2 rounded-pill shadow-lg z-50 pointer-events-none">
           {toast}
         </div>
       )}

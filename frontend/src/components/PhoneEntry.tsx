@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import LanguageSwitcher from "./LanguageSwitcher";
+import Button from "@/components/Button";
 import { api } from "@/lib/api/client";
 
 interface Props {
@@ -54,14 +55,14 @@ export default function PhoneEntry({ onSuccess, locale, onLocaleChange }: Props)
       </div>
 
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-orange-600">{t(locale, "appName")}</h1>
-        <p className="text-sm text-gray-500 mt-1">{t(locale, "tagline")}</p>
+        <h1 className="text-h2 font-bold text-brand">{t(locale, "appName")}</h1>
+        <p className="text-small text-muted mt-1">{t(locale, "tagline")}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <label className="text-sm font-medium text-gray-700">{t(locale, "enterPhone")}</label>
-        <div className="flex items-center border border-gray-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-orange-400 bg-white">
-          <span className="px-3 py-3 text-gray-500 text-sm bg-gray-50 border-r border-gray-200 select-none">
+        <label className="text-small font-medium text-ink-2">{t(locale, "enterPhone")}</label>
+        <div className="flex items-center border border-border rounded-md overflow-hidden focus-within:ring-2 focus-within:ring-accent focus-within:border-accent bg-surface">
+          <span className="px-3 py-3 text-muted text-small bg-surface-2 border-r border-border select-none">
             🇱🇰 +94
           </span>
           <input
@@ -70,19 +71,15 @@ export default function PhoneEntry({ onSuccess, locale, onLocaleChange }: Props)
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder={t(locale, "phonePlaceholder")}
-            className="flex-1 px-3 py-3 text-sm outline-none bg-white"
+            className="flex-1 px-3 py-3 text-small outline-none bg-surface text-ink"
             autoComplete="tel"
             required
           />
         </div>
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-orange-500 text-white font-semibold text-sm hover:bg-orange-600 disabled:opacity-50 transition-colors"
-        >
+        {error && <p className="text-small text-red-500">{error}</p>}
+        <Button type="submit" variant="primary" block disabled={loading}>
           {loading ? t(locale, "sending") : t(locale, "sendOTP")}
-        </button>
+        </Button>
       </form>
     </div>
   );
