@@ -44,6 +44,7 @@ func NewHandlerFromEnv() (*Handler, error) {
 // RegisterRoutes wires the listings and categories routes onto mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/listings", h.listListings)
+	mux.HandleFunc("GET /api/v1/listings/{id}", h.getListing)
 	mux.HandleFunc("GET /api/v1/categories", h.listCategories)
 }
 
@@ -162,6 +163,76 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 		Total:    total,
 	})
+}
+
+// getListing serves GET /api/v1/listings/{id}. Returns the full listing detail
+// with title and description resolved using the ADR 0001 lang fallback chain.
+func (h *Handler) getListing(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		lang = "en"
+	}
+	if !ValidLangs[lang] {
+		apierr.Write(w, http.StatusBadRequest, "invalid_lang", "lang must be en, si, or ta")
+		return
+	}
+
+	var d Detail
+	var priceCents sql.NullInt64
+	var description sql.NullString
+	var translationSource sql.NullString
+
+	err := h.db.QueryRowContext(r.Context(), `
+		SELECT l.id,
+		       c.slug,
+		       l.content_language,
+		       COALESCE(
+		         (SELECT title FROM listing_translations WHERE listing_id = l.id AND lang = $2),
+		         (SELECT title FROM listing_translations WHERE listing_id = l.id AND lang = 'en'),
+		         (SELECT title FROM listing_translations WHERE listing_id = l.id LIMIT 1),
+		         ''
+		       ) AS title,
+		       COALESCE(
+		         (SELECT description FROM listing_translations WHERE listing_id = l.id AND lang = $2),
+		         (SELECT description FROM listing_translations WHERE listing_id = l.id AND lang = 'en'),
+		         (SELECT description FROM listing_translations WHERE listing_id = l.id LIMIT 1)
+		       ) AS description,
+		       COALESCE(
+		         (SELECT source::text FROM listing_translations WHERE listing_id = l.id AND lang = $2),
+		         (SELECT source::text FROM listing_translations WHERE listing_id = l.id AND lang = 'en'),
+		         (SELECT source::text FROM listing_translations WHERE listing_id = l.id LIMIT 1)
+		       ) AS translation_source,
+		       l.price_cents,
+		       l.created_at
+		FROM listings l
+		JOIN categories c ON c.id = l.category_id
+		WHERE l.id = $1 AND l.status = 'active'
+	`, id, lang).Scan(&d.ID, &d.Category, &d.ContentLanguage, &d.Title, &description, &translationSource, &priceCents, &d.CreatedAt)
+
+	if err == sql.ErrNoRows {
+		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found")
+		return
+	}
+	if err != nil {
+		log.Printf("listings: get listing: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not fetch listing")
+		return
+	}
+
+	if description.Valid {
+		d.Description = description.String
+	}
+	if priceCents.Valid {
+		lkr := priceCents.Int64 / 100
+		d.PriceLKR = &lkr
+	}
+	if translationSource.Valid {
+		d.TranslationSource = &translationSource.String
+	}
+
+	writeJSON(w, http.StatusOK, d)
 }
 
 // listCategories serves GET /api/v1/categories with the requested lang

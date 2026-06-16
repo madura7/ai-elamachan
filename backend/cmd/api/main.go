@@ -48,6 +48,7 @@ func main() {
 	if h, err := listings.NewHandlerFromEnv(); err != nil {
 		log.Printf("listings: endpoints disabled: %v", err)
 		mux.HandleFunc("GET /api/v1/listings", listingsUnavailable)
+		mux.HandleFunc("GET /api/v1/listings/{id}", listingsUnavailable)
 		mux.HandleFunc("GET /api/v1/categories", listingsUnavailable)
 	} else {
 		h.RegisterRoutes(mux)

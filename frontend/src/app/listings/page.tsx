@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api/client";
 import type { ListingSummary, ListingPage, CategorySlug } from "@/lib/api/client";
 import { Suspense } from "react";
@@ -27,7 +28,10 @@ const PAGE_SIZE = 20;
 
 function ListingCard({ item }: { item: ListingSummary }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+    <Link
+      href={`/listings/${item.id}`}
+      className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow"
+    >
       <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
         {item.thumbnail_url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -60,7 +64,7 @@ function ListingCard({ item }: { item: ListingSummary }) {
           })}
         </p>
       </div>
-    </div>
+    </Link>
   );
 }
 

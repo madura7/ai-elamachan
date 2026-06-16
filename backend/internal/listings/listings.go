@@ -44,6 +44,19 @@ type Summary struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Detail is the full listing representation returned by GET /api/v1/listings/{id}.
+// Matches the OpenAPI Listing schema.
+type Detail struct {
+	ID                string    `json:"id"`
+	Category          string    `json:"category"`
+	ContentLanguage   string    `json:"content_language"`
+	Title             string    `json:"title"`
+	Description       string    `json:"description"`
+	PriceLKR          *int64    `json:"price_lkr"`
+	TranslationSource *string   `json:"translation_source,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+}
+
 // Page is the paginated response for GET /api/v1/listings.
 // Matches the OpenAPI ListingPage schema.
 type Page struct {
