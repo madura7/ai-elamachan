@@ -11,6 +11,7 @@ import (
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
+	"github.com/madura7/ai-elamachan/backend/internal/middleware"
 	"github.com/madura7/ai-elamachan/backend/internal/search"
 )
 
@@ -71,7 +72,7 @@ func main() {
 	}
 
 	log.Printf("elamachan-backend listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, middleware.CORS(mux)); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
