@@ -21,6 +21,9 @@ type Config struct {
 	DatabaseURL     string
 	// SMSMode: "dev" logs the OTP; real provider requires VER-44.
 	SMSMode string
+	// DevOTPBypass: when true AND SMS_MODE=="dev", seeded test phones accept OTP "000000".
+	// Structurally impossible in prod: boot fails if this flag is on with a real SMS provider.
+	DevOTPBypass bool
 }
 
 // NewConfigFromEnv reads auth configuration from environment variables.
@@ -39,6 +42,15 @@ func NewConfigFromEnv() (Config, error) {
 	}
 	redisURL := envOr("REDIS_URL", "redis://localhost:6379/0")
 
+	smsMode := envOr("SMS_MODE", "dev")
+	devOTPBypass := os.Getenv("DEV_OTP_BYPASS") == "true"
+
+	// Fail fast: the bypass is structurally impossible with a real SMS provider.
+	// This ensures it can never accidentally activate in production.
+	if devOTPBypass && smsMode != "dev" {
+		return Config{}, fmt.Errorf("auth: DEV_OTP_BYPASS=true is not allowed when SMS_MODE=%q (only permitted with SMS_MODE=dev)", smsMode)
+	}
+
 	c := Config{
 		JWTSecret:       []byte(secret),
 		SessionTTL:      30 * 24 * time.Hour,
@@ -50,7 +62,8 @@ func NewConfigFromEnv() (Config, error) {
 		IPRateWindow:    10 * time.Minute,
 		RedisURL:        redisURL,
 		DatabaseURL:     dbURL,
-		SMSMode:         envOr("SMS_MODE", "dev"),
+		SMSMode:         smsMode,
+		DevOTPBypass:    devOTPBypass,
 	}
 
 	if v := os.Getenv("OTP_EXPIRY_MINUTES"); v != "" {

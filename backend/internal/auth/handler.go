@@ -35,6 +35,16 @@ func NewHandlerFromEnv() (*Handler, error) {
 	return NewHandler(cfg)
 }
 
+// devTestPhones is the allow-list of phone numbers that accept the fixed OTP
+// when DEV_OTP_BYPASS is enabled. All entries must be E.164 format.
+var devTestPhones = map[string]bool{
+	"+94700000001": true,
+	"+94700000002": true,
+}
+
+// devFixedOTP is the fixed OTP code accepted by test phones when DEV_OTP_BYPASS is on.
+const devFixedOTP = "000000"
+
 // NewHandler builds a Handler from an already-parsed Config.
 func NewHandler(cfg Config) (*Handler, error) {
 	db, err := sql.Open("pgx", cfg.DatabaseURL)
@@ -56,6 +66,10 @@ func NewHandler(cfg Config) (*Handler, error) {
 		sender = DevStubSender{}
 	default:
 		return nil, fmt.Errorf("auth: unknown SMS_MODE %q (real provider requires VER-44)", cfg.SMSMode)
+	}
+
+	if cfg.DevOTPBypass {
+		log.Printf("[AUTH WARNING] DEV_OTP_BYPASS is ENABLED — test phones accept fixed OTP %q. Must never appear in production.", devFixedOTP)
 	}
 
 	return &Handler{
@@ -124,6 +138,12 @@ func (h *Handler) requestOTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("auth: generate otp: %v", err)
 		writeError(w, http.StatusInternalServerError, "server_error", "could not generate OTP")
 		return
+	}
+	// Dev bypass: test phones get a fixed OTP so staging testers don't need log access.
+	// The fail-fast in NewConfigFromEnv ensures this branch is unreachable in prod.
+	if h.cfg.DevOTPBypass && devTestPhones[phone] {
+		code = devFixedOTP
+		log.Printf("[AUTH DEV BYPASS] fixed OTP used for test phone %s", phone)
 	}
 
 	codeHash, err := HashOTP(code)

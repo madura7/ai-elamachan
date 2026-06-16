@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PROTECTED = ["/listings", "/dashboard"];
+const PROTECTED = ["/sell", "/dashboard"];
 const TOKEN_COOKIE = "elamachan_token";
 
 export function middleware(request: NextRequest) {
@@ -16,6 +16,7 @@ export function middleware(request: NextRequest) {
     if (!token) {
       const url = request.nextUrl.clone();
       url.pathname = "/auth";
+      url.searchParams.set("return", pathname);
       return NextResponse.redirect(url);
     }
   }
@@ -24,5 +25,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/listings/:path*", "/dashboard/:path*"],
+  matcher: ["/sell/:path*", "/dashboard/:path*"],
 };

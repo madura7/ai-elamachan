@@ -22,31 +22,40 @@ export default function Nav() {
           ElaMachan
         </Link>
         <div className="flex items-center gap-5">
-          <Link href="/" className={linkClass("/")}>
-            Home
-          </Link>
           <Link href="/listings" className={linkClass("/listings")}>
-            {authed ? "My Listings" : "Listings"}
+            Browse
           </Link>
           <Link href="/search" className={linkClass("/search")}>
             Search
           </Link>
-          <Link href="/sell/ai-assist" className={linkClass("/sell")}>
-            Sell
-          </Link>
           {authed && (
-            <Link href="/dashboard" className={linkClass("/dashboard")}>
-              Dashboard
-            </Link>
+            <>
+              <Link href="/sell/ai-assist" className={linkClass("/sell")}>
+                Sell
+              </Link>
+              <Link href="/dashboard" className={linkClass("/dashboard")}>
+                Dashboard
+              </Link>
+              <Link href="/auth" className={linkClass("/auth")}>
+                Account
+              </Link>
+            </>
           )}
-          {authed ? (
-            <Link href="/auth" className={linkClass("/auth")}>
-              Account
-            </Link>
-          ) : (
-            <Link href="/auth" className={linkClass("/auth")}>
-              Sign in
-            </Link>
+          {!authed && (
+            <>
+              <Link
+                href="/sell/ai-assist"
+                className={linkClass("/sell")}
+              >
+                Sell
+              </Link>
+              <Link
+                href="/auth"
+                className="text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors px-3 py-1.5 rounded-full"
+              >
+                Login / Register
+              </Link>
+            </>
           )}
         </div>
       </div>

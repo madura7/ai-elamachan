@@ -23,9 +23,11 @@ export default function VerifyPage() {
   }, [router]);
 
   function handleSuccess() {
+    const returnTo = sessionStorage.getItem("otp_return") ?? "/listings";
     sessionStorage.removeItem("otp_challenge_id");
     sessionStorage.removeItem("otp_phone");
-    router.replace("/listings");
+    sessionStorage.removeItem("otp_return");
+    router.replace(returnTo);
   }
 
   function handleBack() {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import { api } from "@/lib/api/client";
@@ -99,10 +100,12 @@ function LoadingSkeleton() {
   );
 }
 
-export default function SearchPage() {
+function SearchContent() {
+  const urlParams = useSearchParams();
   const [locale, setLocale] = useState<Locale>("en");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const initializedRef = useRef(false);
   const [lang, setLang] = useState<Locale>("en");
   const [category, setCategory] = useState("");
   const [page, setPage] = useState(1);
@@ -111,6 +114,17 @@ export default function SearchPage() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchGenRef = useRef(0);
+
+  // Initialize query from URL ?q= param on first mount
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    const q = urlParams.get("q") ?? "";
+    if (q) {
+      setQuery(q);
+      setDebouncedQuery(q);
+    }
+  }, [urlParams]);
 
   // Debounce query → debouncedQuery; reset page on new query
   useEffect(() => {
@@ -405,5 +419,19 @@ export default function SearchPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-orange-50 flex items-center justify-center">
+          <p className="text-gray-400 text-sm">Loading…</p>
+        </main>
+      }
+    >
+      <SearchContent />
+    </Suspense>
   );
 }
