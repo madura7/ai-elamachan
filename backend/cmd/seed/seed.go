@@ -11,11 +11,14 @@ import (
 	"time"
 )
 
-// Stable synthetic identifiers for the seed user.
-// Using a fixed phone means ON CONFLICT (phone_e164) is the idempotency key.
+// Stable synthetic identifiers for seed/test users.
+// Fixed phones are the idempotency key (ON CONFLICT phone_e164).
+// Both phones accept OTP "000000" on staging when DEV_OTP_BYPASS=true.
 const (
-	seedUserPhone = "+94700000001"
-	seedUserID    = "00000000-0000-4000-a000-000000000001"
+	seedUserPhone  = "+94700000001"
+	seedUserID     = "00000000-0000-4000-a000-000000000001"
+	seedUser2Phone = "+94700000002"
+	seedUser2ID    = "00000000-0000-4000-a000-000000000002"
 )
 
 // catSeed describes a category row and its translations.
@@ -55,10 +58,26 @@ var allCategories = []catSeed{
 		names:     map[string]string{"en": "Furniture", "si": "ගෘහ භාණ්ඩ", "ta": "தளபாடங்கள்"},
 	},
 	{
+		id: "00000000-0000-4000-a000-000000000016", slug: "property",
+		sortOrder: 3,
+		names:     map[string]string{"en": "Property", "si": "දේපල", "ta": "சொத்து"},
+	},
+	{
+		id: "00000000-0000-4000-a000-000000000018", slug: "services",
+		sortOrder: 4,
+		names:     map[string]string{"en": "Services", "si": "සේවා", "ta": "சேவைகள்"},
+	},
+	{
 		id: "00000000-0000-4000-a000-000000000011", slug: "mobile-phones",
 		parentSlug: "electronics",
 		sortOrder:  0,
 		names:      map[string]string{"en": "Mobile Phones", "si": "ජංගම දුරකථන", "ta": "மொபைல் போன்கள்"},
+	},
+	{
+		id: "00000000-0000-4000-a000-000000000015", slug: "laptops",
+		parentSlug: "electronics",
+		sortOrder:  1,
+		names:      map[string]string{"en": "Laptops", "si": "ලැප්ටොප්", "ta": "லேப்டாப்"},
 	},
 	{
 		id: "00000000-0000-4000-a000-000000000013", slug: "cars",
@@ -66,9 +85,16 @@ var allCategories = []catSeed{
 		sortOrder:  0,
 		names:      map[string]string{"en": "Cars", "si": "මෝටර් රථ", "ta": "கார்கள்"},
 	},
+	{
+		id: "00000000-0000-4000-a000-000000000017", slug: "motorcycles",
+		parentSlug: "vehicles",
+		sortOrder:  1,
+		names:      map[string]string{"en": "Motorcycles", "si": "යතුරුපැදි", "ta": "மோட்டார் சைக்கிள்"},
+	},
 }
 
 var allListings = []listingSeed{
+	// Mobile phones
 	{
 		id: "00000000-0000-4000-a000-000000000020", catSlug: "mobile-phones",
 		lang: "en", priceCents: 450000,
@@ -82,6 +108,26 @@ var allListings = []listingSeed{
 		description: "Samsung Galaxy S24 128GB Phantom Black, lightly used (10 months), all original accessories.",
 	},
 	{
+		id: "00000000-0000-4000-a000-000000000029", catSlug: "mobile-phones",
+		lang: "en", priceCents: 185000,
+		title:       "Xiaomi Redmi Note 13",
+		description: "Xiaomi Redmi Note 13 128GB Arctic White, brand new in sealed box, dual SIM.",
+	},
+	// Laptops
+	{
+		id: "00000000-0000-4000-a000-000000000030", catSlug: "laptops",
+		lang: "en", priceCents: 520000,
+		title:       "Dell XPS 15 (2023)",
+		description: "Dell XPS 15 Core i7, 16GB RAM, 512GB SSD, OLED 4K display. Excellent condition, 14 months old.",
+	},
+	{
+		id: "00000000-0000-4000-a000-000000000031", catSlug: "laptops",
+		lang: "en", priceCents: 310000,
+		title:       "MacBook Air M1",
+		description: "Apple MacBook Air M1, 8GB RAM, 256GB SSD, Space Grey. Battery health 91%, minor scuffs on lid.",
+	},
+	// Cars
+	{
 		id: "00000000-0000-4000-a000-000000000022", catSlug: "cars",
 		lang: "en", priceCents: 8500000,
 		title:       "Toyota Corolla 2020",
@@ -94,10 +140,36 @@ var allListings = []listingSeed{
 		description: "Honda Civic 2019 1.8L automatic, 52,000 km, reverse camera, power steering, excellent condition.",
 	},
 	{
+		id: "00000000-0000-4000-a000-000000000032", catSlug: "cars",
+		lang: "en", priceCents: 5900000,
+		title:       "Suzuki Alto 2021",
+		description: "Suzuki Alto 2021 0.66L automatic, 22,000 km, single owner, full service history, accident-free.",
+	},
+	// Motorcycles
+	{
+		id: "00000000-0000-4000-a000-000000000033", catSlug: "motorcycles",
+		lang: "en", priceCents: 650000,
+		title:       "Honda CB150R",
+		description: "Honda CB150R 2022, 8,500 km, excellent condition, genuine parts only, never raced.",
+	},
+	// Furniture
+	{
 		id: "00000000-0000-4000-a000-000000000024", catSlug: "furniture",
 		lang: "en", priceCents: 65000,
 		title:       "Teak Dining Table (6-Seater)",
 		description: "Solid teak wood 6-seater dining table, 1.8m × 0.9m, minor surface scratches. Chairs not included.",
+	},
+	{
+		id: "00000000-0000-4000-a000-000000000034", catSlug: "furniture",
+		lang: "en", priceCents: 42000,
+		title:       "3-Seater Fabric Sofa",
+		description: "Light grey fabric sofa, 3-seater, good condition, non-smoking home, minor pilling on armrests.",
+	},
+	{
+		id: "00000000-0000-4000-a000-000000000035", catSlug: "furniture",
+		lang: "en", priceCents: 28000,
+		title:       "Queen Bed Frame with Storage",
+		description: "Wooden queen bed frame with under-bed drawers, 2 years old, no mattress, self-pickup Colombo 5.",
 	},
 }
 
@@ -110,13 +182,21 @@ func seedPostgres(ctx context.Context, db *sql.DB) error {
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	// 1. Seed user (idempotent via phone_e164 UNIQUE)
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO users (id, phone_e164, phone_verified_at, display_name, preferred_language)
-		VALUES ($1, $2, now(), 'Seed User', 'en')
-		ON CONFLICT (phone_e164) DO NOTHING`,
-		seedUserID, seedUserPhone); err != nil {
-		return fmt.Errorf("upsert seed user: %w", err)
+	// 1. Seed users (idempotent via phone_e164 UNIQUE).
+	// Both phones accept OTP "000000" on staging when DEV_OTP_BYPASS=true.
+	type seedUser struct{ id, phone, name string }
+	seedUsers := []seedUser{
+		{seedUserID, seedUserPhone, "Test User One"},
+		{seedUser2ID, seedUser2Phone, "Test User Two"},
+	}
+	for _, u := range seedUsers {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO users (id, phone_e164, phone_verified_at, display_name, preferred_language)
+			VALUES ($1, $2, now(), $3, 'en')
+			ON CONFLICT (phone_e164) DO NOTHING`,
+			u.id, u.phone, u.name); err != nil {
+			return fmt.Errorf("upsert seed user %s: %w", u.phone, err)
+		}
 	}
 
 	var userID string
