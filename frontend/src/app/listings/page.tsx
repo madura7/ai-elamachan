@@ -1,355 +1,272 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import { getToken, getUser, clearAuth, isAuthenticated } from "@/lib/auth";
-import type { User } from "@/lib/auth";
-import type { Locale } from "@/lib/i18n";
-import { t } from "@/lib/i18n";
-import LanguageSwitcher from "@/components/LanguageSwitcher";
-import {
-  getMyListings,
-  updateListing,
-  deleteListing,
-} from "@/lib/api/helpers";
-import type { ListingSummaryWithThumb, UpdateListingBody } from "@/lib/api/helpers";
-import type { CategorySlug } from "@/lib/api/client";
-import Image from "next/image";
+import { useSearchParams, useRouter } from "next/navigation";
+import { api } from "@/lib/api/client";
+import type { ListingSummary, ListingPage, CategorySlug } from "@/lib/api/client";
+import { Suspense } from "react";
 
 const CATEGORIES = [
-  { value: "electronics", label: "Electronics" },
-  { value: "vehicles", label: "Vehicles" },
-  { value: "property", label: "Property" },
-  { value: "home_garden", label: "Home & Garden" },
-  { value: "fashion", label: "Fashion" },
-  { value: "mobile_phones", label: "Mobile Phones" },
-  { value: "services", label: "Services" },
-  { value: "jobs", label: "Jobs" },
-  { value: "pets", label: "Pets" },
-  { value: "other", label: "Other" },
+  { slug: "electronics", label: "Electronics" },
+  { slug: "vehicles", label: "Vehicles" },
+  { slug: "property", label: "Property" },
+  { slug: "home_garden", label: "Home & Garden" },
+  { slug: "fashion", label: "Fashion" },
+  { slug: "mobile_phones", label: "Mobile Phones" },
+  { slug: "services", label: "Services" },
+  { slug: "jobs", label: "Jobs" },
+  { slug: "pets", label: "Pets" },
+  { slug: "other", label: "Other" },
 ];
 
-interface EditState {
-  listing: ListingSummaryWithThumb;
-  category: string;
-  title: string;
-  description: string;
-  price: string;
+const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.slug, c.label])
+);
+
+const PAGE_SIZE = 20;
+
+function ListingCard({ item }: { item: ListingSummary }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+      <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
+        {item.thumbnail_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.thumbnail_url}
+            alt={item.title}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <span className="text-4xl text-gray-300">📦</span>
+        )}
+      </div>
+      <div className="p-3 flex flex-col gap-1 flex-1">
+        <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">
+          {CATEGORY_LABELS[item.category] ?? item.category.replace("_", " ")}
+        </p>
+        <h3 className="text-sm font-semibold text-gray-800 line-clamp-2 leading-snug">
+          {item.title}
+        </h3>
+        <p className="text-sm font-bold text-gray-900 mt-auto pt-1">
+          {item.price_lkr != null
+            ? `LKR ${item.price_lkr.toLocaleString()}`
+            : "Price on request"}
+        </p>
+        <p className="text-xs text-gray-400">
+          {new Date(item.created_at).toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })}
+        </p>
+      </div>
+    </div>
+  );
 }
 
-export default function ListingsPage() {
+function LoadingSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          key={i}
+          className="bg-white rounded-2xl shadow-sm overflow-hidden animate-pulse"
+        >
+          <div className="aspect-[4/3] bg-gray-200" />
+          <div className="p-3 space-y-2">
+            <div className="h-3 bg-gray-200 rounded w-1/2" />
+            <div className="h-4 bg-gray-200 rounded" />
+            <div className="h-3 bg-gray-200 rounded w-1/3 mt-2" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CatalogContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [locale, setLocale] = useState<Locale>("en");
+  const initCategory = searchParams.get("category") ?? "";
 
-  const [listings, setListings] = useState<ListingSummaryWithThumb[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [category, setCategory] = useState(initCategory);
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<ListingPage | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const [editState, setEditState] = useState<EditState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
-
-  const [deleteTarget, setDeleteTarget] = useState<ListingSummaryWithThumb | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const [toast, setToast] = useState<string | null>(null);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  }, []);
+  const fetchListings = useCallback(
+    (cat: string, pg: number) => {
+      setLoading(true);
+      setError(null);
+      api
+        .GET("/listings", {
+          params: {
+            query: {
+              ...(cat ? { category: cat as CategorySlug } : {}),
+              page: pg,
+              pageSize: PAGE_SIZE,
+            },
+          },
+        })
+        .then(({ data, error: apiErr }) => {
+          if (apiErr) {
+            setError("Failed to load listings");
+            setResult(null);
+          } else {
+            setResult(data ?? null);
+          }
+        })
+        .catch(() => {
+          setError("Failed to load listings");
+          setResult(null);
+        })
+        .finally(() => setLoading(false));
+    },
+    []
+  );
 
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.replace("/auth");
-      return;
+    fetchListings(category, page);
+  }, [category, page, fetchListings]);
+
+  function handleCategory(cat: string) {
+    setCategory(cat);
+    setPage(1);
+    const params = new URLSearchParams(searchParams.toString());
+    if (cat) {
+      params.set("category", cat);
+    } else {
+      params.delete("category");
     }
-    const u = getUser();
-    setUser(u);
-    if (u) {
-      const token = getToken()!;
-      getMyListings(token)
-        .then((page) => setListings(page.items))
-        .catch(() => setLoadError(t("en", "errorLoading")))
-        .finally(() => setLoading(false));
-    }
-  }, [router]);
-
-  function handleSignOut() {
-    clearAuth();
-    router.replace("/auth");
+    router.replace(`/listings?${params.toString()}`);
   }
 
-  function openEdit(listing: ListingSummaryWithThumb) {
-    setEditState({
-      listing,
-      category: listing.category,
-      title: listing.title,
-      description: "",
-      price: listing.price_lkr != null ? String(listing.price_lkr) : "",
-    });
-    setEditError(null);
-  }
-
-  async function handleSave() {
-    if (!editState) return;
-    setSaving(true);
-    setEditError(null);
-    const token = getToken()!;
-    const body: UpdateListingBody = {
-      category: editState.category as CategorySlug,
-      title: editState.title.trim(),
-      description: editState.description.trim(),
-      price_lkr: editState.price !== "" ? Number(editState.price) : null,
-    };
-    try {
-      const updated = await updateListing(editState.listing.id, body, token);
-      setListings((prev) =>
-        prev.map((l) =>
-          l.id === updated.id
-            ? { ...l, title: updated.title, category: updated.category, price_lkr: updated.price_lkr }
-            : l
-        )
-      );
-      setEditState(null);
-      showToast(t(locale, "listingUpdated"));
-    } catch {
-      setEditError(t(locale, "errorUpdating"));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!deleteTarget) return;
-    setDeleting(true);
-    setDeleteError(null);
-    const token = getToken()!;
-    try {
-      await deleteListing(deleteTarget.id, token);
-      setListings((prev) => prev.filter((l) => l.id !== deleteTarget.id));
-      setDeleteTarget(null);
-      showToast(t(locale, "listingDeleted"));
-    } catch {
-      setDeleteError(t(locale, "errorDeleting"));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  if (!user) {
-    return (
-      <main className="flex items-center justify-center min-h-[80vh]">
-        <p className="text-gray-400 text-sm">{t(locale, "loading")}</p>
-      </main>
-    );
-  }
+  const totalPages = result ? Math.ceil(result.total / PAGE_SIZE) : 0;
 
   return (
     <main className="min-h-screen bg-orange-50">
-      {/* Page header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <span className="text-sm text-gray-600">
-          {t(locale, "welcome")}, {user.display_name || user.phone}
-        </span>
-        <div className="flex items-center gap-3">
-          <LanguageSwitcher current={locale} onChange={setLocale} />
+      {/* Category filter bar */}
+      <div className="bg-white border-b border-gray-200 sticky top-14 z-10">
+        <div className="max-w-5xl mx-auto px-4 py-2 flex gap-2 overflow-x-auto">
           <button
-            onClick={handleSignOut}
-            className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+            onClick={() => handleCategory("")}
+            className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+              category === ""
+                ? "bg-orange-500 text-white border-orange-500"
+                : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+            }`}
           >
-            {t(locale, "signOut")}
+            All
           </button>
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.slug}
+              onClick={() => handleCategory(category === cat.slug ? "" : cat.slug)}
+              className={`flex-shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                category === cat.slug
+                  ? "bg-orange-500 text-white border-orange-500"
+                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="px-4 py-6 max-w-2xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-700">{t(locale, "myListings")}</h2>
-          <button
-            onClick={() => router.push("/listings/create")}
-            className="text-xs bg-orange-500 text-white px-3 py-1.5 rounded-full hover:bg-orange-600 transition-colors"
-          >
-            + {t(locale, "createListing")}
-          </button>
-        </div>
-
-        {loading && (
-          <div className="bg-white rounded-2xl shadow-sm p-6 text-center">
-            <p className="text-sm text-gray-400">{t(locale, "loading")}</p>
-          </div>
+      <div className="max-w-5xl mx-auto px-4 py-6">
+        {/* Result count */}
+        {!loading && result && (
+          <p className="text-xs text-gray-500 mb-4">
+            {result.total} listing{result.total !== 1 ? "s" : ""}
+            {category && (
+              <button
+                onClick={() => handleCategory("")}
+                className="ml-2 text-orange-500 hover:text-orange-700 underline"
+              >
+                Clear filter ×
+              </button>
+            )}
+          </p>
         )}
 
-        {!loading && loadError && (
-          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-600">
-            {loadError}
-          </div>
-        )}
+        {loading && <LoadingSkeleton />}
 
-        {!loading && !loadError && listings.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
-            <p className="text-sm text-gray-400 mb-4">{t(locale, "noListings")}</p>
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <span className="text-4xl mb-3">⚠️</span>
+            <p className="text-red-500 text-sm">{error}</p>
             <button
-              onClick={() => router.push("/listings/create")}
-              className="text-sm bg-orange-500 text-white px-4 py-2 rounded-full hover:bg-orange-600 transition-colors"
+              onClick={() => fetchListings(category, page)}
+              className="mt-4 text-sm text-orange-500 hover:text-orange-700 underline"
             >
-              {t(locale, "createListing")}
+              Try again
             </button>
           </div>
         )}
 
-        {!loading && !loadError && listings.length > 0 && (
-          <div className="space-y-3">
-            {listings.map((listing) => (
-              <div key={listing.id} className="bg-white rounded-2xl shadow-sm p-4 flex gap-3 items-start">
-                {listing.thumbnail_url ? (
-                  <Image
-                    src={listing.thumbnail_url}
-                    alt={listing.title}
-                    width={64}
-                    height={64}
-                    className="w-16 h-16 rounded-xl object-cover flex-shrink-0 bg-gray-100"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                    <span className="text-2xl text-gray-300">📷</span>
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate">{listing.title}</p>
-                  <p className="text-xs text-gray-400 mt-0.5 capitalize">
-                    {listing.category.replace("_", " ")}
-                  </p>
-                  <p className="text-sm text-orange-600 font-medium mt-1">
-                    {listing.price_lkr != null
-                      ? `${t(locale, "lkr")} ${listing.price_lkr.toLocaleString()}`
-                      : t(locale, "priceOnRequest")}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 flex-shrink-0">
-                  <button
-                    onClick={() => openEdit(listing)}
-                    className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
-                  >
-                    {t(locale, "edit")}
-                  </button>
-                  <button
-                    onClick={() => { setDeleteTarget(listing); setDeleteError(null); }}
-                    className="text-xs px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-500 transition-colors"
-                  >
-                    {t(locale, "delete")}
-                  </button>
-                </div>
-              </div>
-            ))}
+        {!loading && !error && result && result.items.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <span className="text-5xl mb-4">🪹</span>
+            <p className="text-gray-700 font-semibold mb-1">No listings found</p>
+            {category && (
+              <button
+                onClick={() => handleCategory("")}
+                className="mt-3 text-sm text-orange-500 hover:text-orange-700 underline"
+              >
+                Browse all categories
+              </button>
+            )}
           </div>
         )}
+
+        {!loading && !error && result && result.items.length > 0 && (
+          <>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {result.items.map((item) => (
+                <ListingCard key={item.id} item={item} />
+              ))}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-3">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="text-sm px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-gray-500">
+                  Page {page} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="text-sm px-4 py-2 rounded-xl border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
-
-      {/* Edit modal */}
-      {editState && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="font-semibold text-gray-800">{t(locale, "editListing")}</h3>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "category")}</label>
-              <select
-                value={editState.category}
-                onChange={(e) => setEditState((s) => s && { ...s, category: e.target.value })}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
-              >
-                {CATEGORIES.map((c) => (
-                  <option key={c.value} value={c.value}>{c.label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "titleLabel")}</label>
-              <input
-                type="text"
-                value={editState.title}
-                onChange={(e) => setEditState((s) => s && { ...s, title: e.target.value })}
-                maxLength={200}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "descriptionLabel")}</label>
-              <textarea
-                value={editState.description}
-                onChange={(e) => setEditState((s) => s && { ...s, description: e.target.value })}
-                rows={4}
-                maxLength={5000}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-none"
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">{t(locale, "priceLKR")}</label>
-              <input
-                type="number"
-                value={editState.price}
-                onChange={(e) => setEditState((s) => s && { ...s, price: e.target.value })}
-                min={0}
-                placeholder={t(locale, "pricePlaceholder")}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400"
-              />
-            </div>
-            {editError && <p className="text-xs text-red-500">{editError}</p>}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={() => setEditState(null)}
-                disabled={saving}
-                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                {t(locale, "cancel")}
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={saving || !editState.title.trim() || !editState.category}
-                className="flex-1 bg-orange-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
-              >
-                {saving ? t(locale, "saving") : t(locale, "save")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete confirmation */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl p-6 space-y-4">
-            <h3 className="font-semibold text-gray-800">{t(locale, "confirmDelete")}</h3>
-            <p className="text-sm text-gray-500">&ldquo;{deleteTarget.title}&rdquo;</p>
-            <p className="text-xs text-gray-400">{t(locale, "confirmDeleteDesc")}</p>
-            {deleteError && <p className="text-xs text-red-500">{deleteError}</p>}
-            <div className="flex gap-3">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-                className="flex-1 border border-gray-200 rounded-xl py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
-              >
-                {t(locale, "cancel")}
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={deleting}
-                className="flex-1 bg-red-500 text-white rounded-xl py-2.5 text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
-              >
-                {deleting ? t(locale, "deleting") : t(locale, "delete")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50 pointer-events-none">
-          {toast}
-        </div>
-      )}
     </main>
+  );
+}
+
+export default function ListingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-orange-50 flex items-center justify-center">
+          <p className="text-gray-400 text-sm">Loading…</p>
+        </main>
+      }
+    >
+      <CatalogContent />
+    </Suspense>
   );
 }
