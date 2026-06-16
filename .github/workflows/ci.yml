@@ -75,10 +75,14 @@ jobs:
         run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" down 1
 
   deploy-backend:
-    name: Deploy backend to Render
+    name: Deploy backend to Fly.io
     needs: [backend, frontend, migrations]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Render deploy hook
-        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only --app elamachan-api
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
