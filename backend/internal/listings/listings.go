@@ -12,9 +12,12 @@ var ValidLangs = map[string]bool{
 	"ta": true,
 }
 
-// ValidCategories is the closed category slug set. Single source of truth for
-// server-side validation; must stay in sync with openapi.yaml CategorySlug enum.
+// ValidCategories is the category slug allowlist used for query-param validation.
+// Includes both the OpenAPI enum slugs and the seed taxonomy slugs so that
+// ?category= filters work with both the current live seed data and any future
+// migration-seeded taxonomy.
 var ValidCategories = map[string]bool{
+	// OpenAPI CategorySlug enum
 	"electronics":  true,
 	"vehicles":     true,
 	"property":     true,
@@ -25,6 +28,10 @@ var ValidCategories = map[string]bool{
 	"jobs":         true,
 	"pets":         true,
 	"other":        true,
+	// Seed taxonomy slugs (cmd/seed)
+	"mobile-phones": true,
+	"cars":          true,
+	"furniture":     true,
 }
 
 // Summary is the slim listing representation returned by GET /api/v1/listings.
