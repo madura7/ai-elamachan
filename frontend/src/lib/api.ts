@@ -30,6 +30,7 @@ export interface Listing {
   title: string;
   description: string;
   price_lkr: number | null;
+  translation_source: "human" | "machine" | null;
   images: ListingImage[];
   created_at: string;
 }
@@ -88,6 +89,32 @@ export interface SearchResult {
   pageSize: number;
   total: number;
   facets: Record<string, number>;
+}
+
+export type CategorySlug =
+  | "electronics"
+  | "vehicles"
+  | "property"
+  | "home_garden"
+  | "fashion"
+  | "mobile_phones"
+  | "services"
+  | "jobs"
+  | "pets"
+  | "other";
+
+export interface Category {
+  slug: CategorySlug;
+  name: string;
+  parent_slug?: string | null;
+  sort_order?: number;
+}
+
+export interface PublicListingPage {
+  items: ListingSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export interface SearchParams {
@@ -177,8 +204,9 @@ export function uploadListingImage(
   });
 }
 
-export function getListing(id: string): Promise<Listing> {
-  return apiFetch<Listing>(`${BASE}/listings/${id}`, {});
+export function getListing(id: string, lang?: string): Promise<Listing> {
+  const qs = lang ? `?lang=${lang}` : "";
+  return apiFetch<Listing>(`${BASE}/listings/${id}${qs}`, {});
 }
 
 export function getMyListings(token: string, page = 1): Promise<ListingsPage> {
@@ -220,6 +248,26 @@ export function getAIDraft(
     method: "POST",
     body: form,
   });
+}
+
+export function listCategories(lang?: string): Promise<Category[]> {
+  const qs = lang ? `?lang=${lang}` : "";
+  return apiFetch<Category[]>(`${BASE}/categories${qs}`, {});
+}
+
+export function listPublicListings(opts: {
+  lang?: string;
+  category?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<PublicListingPage> {
+  const qs = new URLSearchParams();
+  if (opts.lang) qs.set("lang", opts.lang);
+  if (opts.category) qs.set("category", opts.category);
+  if (opts.page && opts.page > 1) qs.set("page", String(opts.page));
+  if (opts.pageSize) qs.set("pageSize", String(opts.pageSize));
+  const q = qs.toString();
+  return apiFetch<PublicListingPage>(`${BASE}/listings${q ? `?${q}` : ""}`, {});
 }
 
 export function searchListings(params: SearchParams): Promise<SearchResult> {
