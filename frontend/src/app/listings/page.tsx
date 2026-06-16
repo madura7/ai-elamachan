@@ -251,6 +251,12 @@ export default function ListingsPage() {
                 {/* Actions */}
                 <div className="flex flex-col gap-2 flex-shrink-0">
                   <button
+                    onClick={() => router.push(`/listings/${listing.id}`)}
+                    className="text-xs px-3 py-1.5 border border-orange-200 rounded-lg hover:bg-orange-50 text-orange-600 transition-colors"
+                  >
+                    View
+                  </button>
+                  <button
                     onClick={() => openEdit(listing)}
                     className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 transition-colors"
                   >
