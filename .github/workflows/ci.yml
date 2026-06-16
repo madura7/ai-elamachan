@@ -73,3 +73,12 @@ jobs:
         run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" up
       - name: Roll back last migration (down 1)
         run: migrate -path backend/migrations -database "postgres://elamachan:elamachan@localhost:5432/elamachan?sslmode=disable" down 1
+
+  deploy-backend:
+    name: Deploy backend to Render
+    needs: [backend, frontend, migrations]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render deploy hook
+        run: curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

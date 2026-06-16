@@ -16,7 +16,7 @@ backend. See [`.ai/project.md`](.ai/project.md) for the full product + engineeri
 | Cache      | Redis                                  |
 | Search     | Meilisearch                            |
 | AI         | Claude API                             |
-| Hosting    | GCP (+ Secret Manager for secrets)     |
+| Hosting    | Vercel (frontend) + Render (backend)   |
 
 ```
 .
@@ -75,6 +75,33 @@ development. See [`docs/secrets.md`](docs/secrets.md) for the full policy.
 
 Every pull request runs the [CI gate](.github/workflows/ci.yml): backend build/vet/test,
 frontend lint/build, and a migrations apply check against a throwaway Postgres.
+
+Merging to `main` additionally triggers the `deploy-backend` job (only after all three gates are
+green) which fires a [Render deploy hook](https://render.com/docs/deploy-hooks) to rebuild and
+redeploy the API image.
+
+## Staging
+
+| Component  | Platform | URL (after first deploy)                            |
+| ---------- | -------- | --------------------------------------------------- |
+| Frontend   | Vercel   | `https://elamachan.vercel.app`                      |
+| Backend    | Render   | `https://elamachan-api.onrender.com`                |
+
+**Vercel Git integration** is configured through the Vercel dashboard (no YAML needed). Once the
+repo is connected:
+- Every PR automatically gets a preview URL posted as a PR comment.
+- Merging to `main` triggers a Vercel prod deploy.
+- Set `NEXT_PUBLIC_API_BASE_URL` to the Render service URL in the Vercel **Production** environment
+  and to a suitable value for **Preview** (the same staging URL is fine).
+
+**Render cold-start latency:** The free Render plan spins down after 15 minutes of inactivity and
+takes ~30–60 seconds to cold-start. The first request after inactivity will be slow; subsequent
+requests within the active window are fast. To warm the service, hit the `/healthz` endpoint or
+upgrade to a paid Render plan.
+
+**Backend deploy hook:** Add the Render deploy hook URL as a GitHub Actions secret named
+`RENDER_DEPLOY_HOOK_URL` (Settings → Secrets → Actions). The CI `deploy-backend` job fires it
+automatically on every green merge to `main`.
 
 ## Contributing
 
