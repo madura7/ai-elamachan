@@ -28,6 +28,9 @@ export default function Nav() {
           <Link href="/listings" className={linkClass("/listings")}>
             {authed ? "My Listings" : "Listings"}
           </Link>
+          <Link href="/search" className={linkClass("/search")}>
+            Search
+          </Link>
           {/* Sell link slot — wired by AI-assist port (VER-190) */}
           {authed && (
             <Link href="/dashboard" className={linkClass("/dashboard")}>
