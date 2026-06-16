@@ -51,17 +51,19 @@ func NewFromEnv() (*Service, error) {
 // of results. It handles both seed-format documents (flat title/category_slug)
 // and per-language documents (title_en/category fields) by delegating title and
 // category resolution to the Document helper methods.
+//
+// Uses Limit/Offset pagination (not Page/HitsPerPage) for compatibility with
+// the Meilisearch version bundled in the Fly.io image. Only requests facets
+// for fields that are actually in the seed's filterableAttributes.
 func (s *Service) Search(_ context.Context, p Params) (*Result, error) {
 	req := &meilisearch.SearchRequest{
-		Page:        int64(p.Page),
-		HitsPerPage: int64(p.PageSize),
-		Facets:      []string{"category", "category_slug"},
+		Limit:  int64(p.PageSize),
+		Offset: int64((p.Page - 1) * p.PageSize),
+		Facets: []string{"category_slug"},
 	}
 	if p.Category != "" {
-		// Support both the service-indexed "category" field and the seed's
-		// "category_slug" field in a single OR filter so the endpoint works
-		// regardless of which document format is in the index.
-		req.Filter = fmt.Sprintf(`category = %q OR category_slug = %q`, p.Category, p.Category)
+		// The seed index has category_slug in filterableAttributes.
+		req.Filter = fmt.Sprintf(`category_slug = %q`, p.Category)
 	}
 
 	resp, err := s.index.Search(p.Query, req)
@@ -89,11 +91,16 @@ func (s *Service) Search(_ context.Context, p Params) (*Result, error) {
 		})
 	}
 
+	total := int(resp.EstimatedTotalHits)
+	if resp.TotalHits > 0 {
+		total = int(resp.TotalHits)
+	}
+
 	return &Result{
 		Items:    items,
 		Page:     p.Page,
 		PageSize: p.PageSize,
-		Total:    int(resp.TotalHits),
+		Total:    total,
 		Facets:   categoryFacets(resp.FacetDistribution),
 	}, nil
 }
