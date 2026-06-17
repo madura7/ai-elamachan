@@ -74,3 +74,13 @@ type Category struct {
 	ParentSlug *string `json:"parent_slug"`
 	SortOrder  int     `json:"sort_order"`
 }
+
+// ListingCreateRequest is the JSON body for POST /api/v1/listings.
+// Matches the OpenAPI ListingCreate schema.
+type ListingCreateRequest struct {
+	Category        string `json:"category"`
+	ContentLanguage string `json:"content_language"`
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	PriceLKR        *int64 `json:"price_lkr"`
+}

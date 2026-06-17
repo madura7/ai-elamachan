@@ -207,8 +207,7 @@ paths:
       tags: [listings]
       operationId: listListings
       summary: List published listings
-      x-status: stub
-      description: "**Stub** — finalized by the listings issue. Paginated browse/filter."
+      description: "Paginated browse/filter. Pass mine=true (auth required) to return only the caller's listings."
       parameters:
         - $ref: "#/components/parameters/LangQuery"
         - name: category
@@ -216,6 +215,13 @@ paths:
           required: false
           schema:
             $ref: "#/components/schemas/CategorySlug"
+        - name: mine
+          in: query
+          required: false
+          description: "When true, return only the authenticated caller's listings. Requires a valid bearer token."
+          schema:
+            type: boolean
+            default: false
         - $ref: "#/components/parameters/PageQuery"
         - $ref: "#/components/parameters/PageSizeQuery"
       responses:
@@ -225,15 +231,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
     post:
       tags: [listings]
       operationId: createListing
       summary: Create a listing
-      x-status: stub
       description: |
-        **Stub** — finalized by the listings issue. Creates a listing authored in
-        a single `content_language`. Requires authentication. A draft from
-        `/listings/ai-draft` is never auto-created; the seller submits here.
+        Creates a listing authored in a single `content_language`. Requires authentication.
+        A draft from `/listings/ai-draft` is never auto-created; the seller submits here.
+        A PostingPolicy is evaluated first; exceeding the daily cap returns 403.
       security:
         - bearerAuth: []
       requestBody:
@@ -253,6 +260,12 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Posting denied by policy (e.g. daily cap exceeded).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostingDenied"
 
   /listings/{id}:
     get:
@@ -537,6 +550,23 @@ components:
           type: [string, "null"]
         sort_order:
           type: integer
+      additionalProperties: false
+
+    PostingDenied:
+      type: object
+      description: Returned with 403 when a PostingPolicy rejects the create request.
+      required: [code, message, retry_after]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable denial code (e.g. posting_limit_exceeded).
+        message:
+          type: string
+          description: Human-readable reason.
+        retry_after:
+          type: integer
+          format: int64
+          description: Unix timestamp (seconds) after which the caller may retry. 0 when not applicable.
       additionalProperties: false
 
     ListingCreate:
