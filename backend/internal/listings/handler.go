@@ -1,6 +1,7 @@
 package listings
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,8 +9,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/madura7/ai-elamachan/backend/internal/apierr"
+	"github.com/madura7/ai-elamachan/backend/internal/auth"
 
 	// pgx registers the "pgx" driver name with database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -20,9 +24,12 @@ const (
 	maxPageSize     = 100
 )
 
-// Handler serves GET /api/v1/listings and GET /api/v1/categories.
+// Handler serves listing and category endpoints.
 type Handler struct {
-	db *sql.DB
+	db          *sql.DB
+	policy      PostingPolicy
+	bearer      func(http.Handler) http.Handler
+	verifyToken func(ctx context.Context, token string) (string, error)
 }
 
 // NewHandlerFromEnv constructs a Handler from DATABASE_URL.
@@ -38,7 +45,20 @@ func NewHandlerFromEnv() (*Handler, error) {
 	}
 	db.SetMaxOpenConns(10)
 	db.SetMaxIdleConns(3)
-	return &Handler{db: db}, nil
+	return &Handler{
+		db:     db,
+		policy: policyFromEnv(db),
+	}, nil
+}
+
+// SetAuth wires in bearer middleware (for POST /listings) and a token verifier
+// (for optional auth on GET /listings?mine=true).
+func (h *Handler) SetAuth(
+	bearer func(http.Handler) http.Handler,
+	verify func(ctx context.Context, token string) (string, error),
+) {
+	h.bearer = bearer
+	h.verifyToken = verify
 }
 
 // RegisterRoutes wires the listings and categories routes onto mux.
@@ -46,10 +66,16 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/listings", h.listListings)
 	mux.HandleFunc("GET /api/v1/listings/{id}", h.getListing)
 	mux.HandleFunc("GET /api/v1/categories", h.listCategories)
+
+	post := http.Handler(http.HandlerFunc(h.createListing))
+	if h.bearer != nil {
+		post = h.bearer(post)
+	}
+	mux.Handle("POST /api/v1/listings", post)
 }
 
-// listListings serves GET /api/v1/listings with optional lang and category
-// filters plus page/pageSize pagination.
+// listListings serves GET /api/v1/listings with optional lang, category,
+// page/pageSize, and mine=true (auth required when set) filters.
 func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 
@@ -66,6 +92,23 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	if category != "" && !ValidCategories[category] {
 		apierr.Write(w, http.StatusBadRequest, "invalid_category", "unknown category slug")
 		return
+	}
+
+	mine := q.Get("mine") == "true"
+	var callerID string
+	if mine {
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") || h.verifyToken == nil {
+			apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required for mine=true")
+			return
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		uid, err := h.verifyToken(r.Context(), token)
+		if err != nil {
+			apierr.Write(w, http.StatusUnauthorized, "unauthorized", "invalid or expired session")
+			return
+		}
+		callerID = uid
 	}
 
 	page, pageSize := 1, defaultPageSize
@@ -88,14 +131,21 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * pageSize
 
-	// Count query.
-	var total int
 	countQuery := `SELECT COUNT(*) FROM listings l JOIN categories c ON c.id = l.category_id WHERE l.status = 'active'`
 	countArgs := []any{}
-	if category != "" {
-		countQuery += " AND c.slug = $1"
-		countArgs = append(countArgs, category)
+	argIdx := 1
+	if mine {
+		countQuery += fmt.Sprintf(" AND l.user_id = $%d", argIdx)
+		countArgs = append(countArgs, callerID)
+		argIdx++
 	}
+	if category != "" {
+		countQuery += fmt.Sprintf(" AND c.slug = $%d", argIdx)
+		countArgs = append(countArgs, category)
+		argIdx++
+	}
+
+	var total int
 	if err := h.db.QueryRowContext(r.Context(), countQuery, countArgs...).Scan(&total); err != nil {
 		log.Printf("listings: count query: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not count listings")
@@ -103,7 +153,7 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Data query: resolve title using lang → 'en' → any fallback (ADR 0001).
-	dataQuery := `
+	dataQuery := fmt.Sprintf(`
 		SELECT l.id,
 		       c.slug,
 		       COALESCE(
@@ -116,10 +166,15 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		       l.created_at
 		FROM listings l
 		JOIN categories c ON c.id = l.category_id
-		WHERE l.status = 'active'`
+		WHERE l.status = 'active'`)
 
 	dataArgs := []any{lang}
-	argIdx := 2
+	argIdx = 2
+	if mine {
+		dataQuery += fmt.Sprintf(" AND l.user_id = $%d", argIdx)
+		dataArgs = append(dataArgs, callerID)
+		argIdx++
+	}
 	if category != "" {
 		dataQuery += fmt.Sprintf(" AND c.slug = $%d", argIdx)
 		dataArgs = append(dataArgs, category)
@@ -233,6 +288,109 @@ func (h *Handler) getListing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, d)
+}
+
+// createListing serves POST /api/v1/listings. Requires bearer auth.
+// Calls the PostingPolicy before touching the DB.
+func (h *Handler) createListing(w http.ResponseWriter, r *http.Request) {
+	userID, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		return
+	}
+
+	// Policy check FIRST — before parsing or touching the DB.
+	d := h.policy.CheckCanPost(r.Context(), userID)
+	if !d.Allowed {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":        d.Code,
+			"message":     d.Message,
+			"retry_after": d.RetryAfter,
+		})
+		return
+	}
+
+	var req ListingCreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		apierr.Write(w, http.StatusBadRequest, "invalid_body", "could not parse request body")
+		return
+	}
+
+	if !ValidCategories[req.Category] {
+		apierr.Write(w, http.StatusBadRequest, "invalid_category", "unknown category slug")
+		return
+	}
+	if !ValidLangs[req.ContentLanguage] {
+		apierr.Write(w, http.StatusBadRequest, "invalid_content_language", "content_language must be en, si, or ta")
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		apierr.Write(w, http.StatusBadRequest, "missing_title", "title is required")
+		return
+	}
+	if strings.TrimSpace(req.Description) == "" {
+		apierr.Write(w, http.StatusBadRequest, "missing_description", "description is required")
+		return
+	}
+
+	var categoryID string
+	err := h.db.QueryRowContext(r.Context(), `SELECT id FROM categories WHERE slug = $1`, req.Category).Scan(&categoryID)
+	if err == sql.ErrNoRows {
+		apierr.Write(w, http.StatusBadRequest, "invalid_category", "category not found")
+		return
+	}
+	if err != nil {
+		log.Printf("listings: lookup category: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not look up category")
+		return
+	}
+
+	var priceCents sql.NullInt64
+	if req.PriceLKR != nil {
+		priceCents = sql.NullInt64{Int64: *req.PriceLKR * 100, Valid: true}
+	}
+
+	var listingID string
+	var createdAt time.Time
+	err = h.db.QueryRowContext(r.Context(), `
+		INSERT INTO listings (user_id, category_id, content_language, price_cents, currency, status)
+		VALUES ($1, $2, $3, $4, 'LKR', 'active')
+		RETURNING id, created_at
+	`, userID, categoryID, req.ContentLanguage, priceCents).Scan(&listingID, &createdAt)
+	if err != nil {
+		log.Printf("listings: insert listing: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not create listing")
+		return
+	}
+
+	_, err = h.db.ExecContext(r.Context(), `
+		INSERT INTO listing_translations (listing_id, lang, title, description, source)
+		VALUES ($1, $2, $3, $4, 'human')
+	`, listingID, req.ContentLanguage, req.Title, req.Description)
+	if err != nil {
+		log.Printf("listings: insert translation: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not save listing content")
+		return
+	}
+
+	var priceLKR *int64
+	if priceCents.Valid {
+		lkr := priceCents.Int64 / 100
+		priceLKR = &lkr
+	}
+	src := "human"
+	writeJSON(w, http.StatusCreated, Detail{
+		ID:                listingID,
+		Category:          req.Category,
+		ContentLanguage:   req.ContentLanguage,
+		Title:             req.Title,
+		Description:       req.Description,
+		PriceLKR:          priceLKR,
+		TranslationSource: &src,
+		CreatedAt:         createdAt,
+	})
 }
 
 // listCategories serves GET /api/v1/categories with the requested lang

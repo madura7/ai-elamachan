@@ -113,15 +113,15 @@ export interface paths {
         };
         /**
          * List published listings
-         * @description **Stub** — finalized by the listings issue. Paginated browse/filter.
+         * @description Paginated browse/filter. Pass mine=true (auth required) to return only the caller's listings.
          */
         get: operations["listListings"];
         put?: never;
         /**
          * Create a listing
-         * @description **Stub** — finalized by the listings issue. Creates a listing authored in
-         *     a single `content_language`. Requires authentication. A draft from
-         *     `/listings/ai-draft` is never auto-created; the seller submits here.
+         * @description Creates a listing authored in a single `content_language`. Requires authentication.
+         *     A draft from `/listings/ai-draft` is never auto-created; the seller submits here.
+         *     A PostingPolicy is evaluated first; exceeding the daily cap returns 403.
          *
          */
         post: operations["createListing"];
@@ -269,6 +269,18 @@ export interface components {
             name: string;
             parent_slug?: string | null;
             sort_order?: number;
+        };
+        /** @description Returned with 403 when a PostingPolicy rejects the create request. */
+        PostingDenied: {
+            /** @description Stable machine-readable denial code (e.g. posting_limit_exceeded). */
+            code: string;
+            /** @description Human-readable reason. */
+            message: string;
+            /**
+             * Format: int64
+             * @description Unix timestamp (seconds) after which the caller may retry. 0 when not applicable.
+             */
+            retry_after: number;
         };
         ListingCreate: {
             category: components["schemas"]["CategorySlug"];
@@ -531,6 +543,8 @@ export interface operations {
                 /** @description Preferred response language; falls back `requested → en → any` (ADR 0001). */
                 lang?: components["parameters"]["LangQuery"];
                 category?: components["schemas"]["CategorySlug"];
+                /** @description When true, return only the authenticated caller's listings. Requires a valid bearer token. */
+                mine?: boolean;
                 page?: components["parameters"]["PageQuery"];
                 pageSize?: components["parameters"]["PageSizeQuery"];
             };
@@ -549,6 +563,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListingPage"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
         };
     };
     createListing: {
@@ -575,6 +590,15 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            /** @description Posting denied by policy (e.g. daily cap exceeded). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostingDenied"];
+                };
+            };
         };
     };
     getListing: {

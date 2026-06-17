@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -36,22 +37,31 @@ func main() {
 	// Phone/OTP auth + JWT/Redis sessions (VER-135, ADR 0002).
 	// Requires JWT_SECRET and DATABASE_URL. Redis defaults to localhost:6379.
 	// SMS_MODE=dev logs OTPs to stdout; real SMS delivery needs VER-44.
+	var bearer func(http.Handler) http.Handler
+	var verifyToken func(ctx context.Context, token string) (string, error)
 	if h, err := auth.NewHandlerFromEnv(); err != nil {
 		log.Printf("auth: endpoints disabled: %v", err)
 		mux.HandleFunc("POST /api/v1/auth/otp/request", authUnavailable)
 		mux.HandleFunc("POST /api/v1/auth/otp/verify", authUnavailable)
 	} else {
+		bearer = h.BearerMiddleware
+		verifyToken = h.VerifyToken
 		h.RegisterRoutes(mux)
 	}
 
-	// Listings browse + category taxonomy (VER-225).
+	// Listings browse, create, and category taxonomy (VER-225, VER-289).
 	// Requires DATABASE_URL. Falls back to 503 stubs when DB is unavailable.
+	// POST /listings and GET /listings?mine=true require bearer auth.
 	if h, err := listings.NewHandlerFromEnv(); err != nil {
 		log.Printf("listings: endpoints disabled: %v", err)
 		mux.HandleFunc("GET /api/v1/listings", listingsUnavailable)
+		mux.HandleFunc("POST /api/v1/listings", listingsUnavailable)
 		mux.HandleFunc("GET /api/v1/listings/{id}", listingsUnavailable)
 		mux.HandleFunc("GET /api/v1/categories", listingsUnavailable)
 	} else {
+		if bearer != nil {
+			h.SetAuth(bearer, verifyToken)
+		}
 		h.RegisterRoutes(mux)
 	}
 

@@ -36,3 +36,9 @@ func UserIDFromContext(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(ctxKeyUserID).(string)
 	return id, ok && id != ""
 }
+
+// VerifyToken validates a raw bearer token string and returns the userID.
+// Used by handlers that need optional/soft authentication outside BearerMiddleware.
+func (h *Handler) VerifyToken(ctx context.Context, token string) (string, error) {
+	return h.sessions.Verify(ctx, token)
+}
