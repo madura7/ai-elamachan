@@ -18,16 +18,16 @@ var ValidLangs = map[string]bool{
 // migration-seeded taxonomy.
 var ValidCategories = map[string]bool{
 	// OpenAPI CategorySlug enum
-	"electronics":  true,
-	"vehicles":     true,
-	"property":     true,
-	"home_garden":  true,
-	"fashion":      true,
+	"electronics":   true,
+	"vehicles":      true,
+	"property":      true,
+	"home_garden":   true,
+	"fashion":       true,
 	"mobile_phones": true,
-	"services":     true,
-	"jobs":         true,
-	"pets":         true,
-	"other":        true,
+	"services":      true,
+	"jobs":          true,
+	"pets":          true,
+	"other":         true,
 	// Seed taxonomy slugs (cmd/seed)
 	"mobile-phones": true,
 	"cars":          true,
@@ -83,4 +83,15 @@ type ListingCreateRequest struct {
 	Title           string `json:"title"`
 	Description     string `json:"description"`
 	PriceLKR        *int64 `json:"price_lkr"`
+}
+
+// ListingUpdateRequest is the JSON body for PUT /api/v1/listings/{id}.
+// Matches the OpenAPI ListingUpdate schema. content_language is immutable after
+// creation, so the title/description edits land on the listing's existing
+// authored-language translation row.
+type ListingUpdateRequest struct {
+	Category    string `json:"category"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	PriceLKR    *int64 `json:"price_lkr"`
 }

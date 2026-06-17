@@ -43,6 +43,65 @@ func TestCreateListing_Unauthorized_NoToken(t *testing.T) {
 	}
 }
 
+func TestUpdateListing_Unauthorized_NoToken(t *testing.T) {
+	h := &Handler{}
+	body := `{"category":"electronics","title":"T","description":"D"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/listings/abc", strings.NewReader(body))
+	req.SetPathValue("id", "abc")
+	w := httptest.NewRecorder()
+
+	h.updateListing(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestDeleteListing_Unauthorized_NoToken(t *testing.T) {
+	h := &Handler{}
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/listings/abc", nil)
+	req.SetPathValue("id", "abc")
+	w := httptest.NewRecorder()
+
+	h.deleteListing(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+// Validation runs before the ownership DB lookup, so a bad body is rejected
+// with 400 without touching the database.
+func TestUpdateListing_InvalidCategory_Returns400(t *testing.T) {
+	h := &Handler{}
+	body := `{"category":"not-a-category","title":"T","description":"D"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/listings/abc", strings.NewReader(body))
+	req.SetPathValue("id", "abc")
+	req = auth.TestContext(req, "user-abc")
+	w := httptest.NewRecorder()
+
+	h.updateListing(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateListing_MissingTitle_Returns400(t *testing.T) {
+	h := &Handler{}
+	body := `{"category":"electronics","title":"   ","description":"D"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/listings/abc", strings.NewReader(body))
+	req.SetPathValue("id", "abc")
+	req = auth.TestContext(req, "user-abc")
+	w := httptest.NewRecorder()
+
+	h.updateListing(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
 func TestCreateListing_PolicyDenied_Returns403(t *testing.T) {
 	h := &Handler{policy: denyPolicy{}}
 	body := `{"category":"electronics","content_language":"en","title":"T","description":"D"}`
