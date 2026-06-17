@@ -20,10 +20,10 @@ export default function LanguageSwitcher({ current, onChange }: Props) {
         <button
           key={code}
           onClick={() => onChange(code)}
-          className={`px-2 py-1 text-xs rounded font-medium transition-colors ${
+          className={`px-2 py-1 text-caption rounded-sm font-medium transition-colors ${
             current === code
-              ? "bg-orange-500 text-white"
-              : "bg-white text-gray-600 border border-gray-200 hover:border-orange-300"
+              ? "bg-accent text-white"
+              : "bg-surface text-ink-2 border border-border hover:border-accent"
           }`}
         >
           {label}

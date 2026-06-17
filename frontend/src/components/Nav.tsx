@@ -3,58 +3,62 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
+import Button from "@/components/Button";
 
 export default function Nav() {
   const pathname = usePathname();
   const authed = isAuthenticated();
 
   const linkClass = (href: string) =>
-    `text-sm font-medium transition-colors hover:text-orange-600 ${
+    `text-body font-medium transition-colors hover:text-accent ${
       pathname === href || pathname.startsWith(href + "/")
-        ? "text-orange-600"
-        : "text-gray-600"
+        ? "text-accent"
+        : "text-ink-2"
     }`;
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-20">
-      <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-        <Link href="/" className="text-lg font-bold text-orange-600 shrink-0">
-          ElaMachan
+    <nav className="sticky top-0 z-20 border-b border-border bg-white/90 backdrop-blur">
+      <div className="mx-auto flex h-[68px] max-w-wrap items-center gap-4 px-6">
+        <Link href="/" className="flex shrink-0 items-center gap-2.5 text-h3 font-bold tracking-tight text-ink hover:no-underline">
+          <span
+            className="grid h-[30px] w-[30px] place-items-center rounded-[9px] text-base font-extrabold text-[#20180A] shadow-[inset_0_0_0_1px_rgba(0,0,0,.05)]"
+            style={{ background: "linear-gradient(135deg, var(--c-yellow), #FFD75E)" }}
+            aria-hidden
+          >
+            E
+          </span>
+          <span>
+            Ela<span className="text-accent">Machan</span>
+          </span>
         </Link>
-        <div className="flex items-center gap-5">
-          <Link href="/listings" className={linkClass("/listings")}>
+
+        <div className="ml-auto flex items-center gap-3">
+          <Link href="/listings" className={`${linkClass("/listings")} hidden sm:inline`}>
             Browse
           </Link>
-          <Link href="/search" className={linkClass("/search")}>
+          <Link href="/search" className={`${linkClass("/search")} hidden sm:inline`}>
             Search
           </Link>
-          {authed && (
+          {authed ? (
             <>
-              <Link href="/sell/ai-assist" className={linkClass("/sell")}>
-                Sell
-              </Link>
-              <Link href="/dashboard" className={linkClass("/dashboard")}>
+              <Link href="/dashboard" className={`${linkClass("/dashboard")} hidden sm:inline`}>
                 Dashboard
               </Link>
               <Link href="/auth" className={linkClass("/auth")}>
                 Account
               </Link>
+              <Button href="/sell/ai-assist" variant="primary" size="sm">
+                ＋ Sell
+              </Button>
             </>
-          )}
-          {!authed && (
+          ) : (
             <>
-              <Link
-                href="/sell/ai-assist"
-                className={linkClass("/sell")}
-              >
-                Sell
+              <Link href="/auth" className={`${linkClass("/auth")} hidden sm:inline`}>
+                Login
               </Link>
-              <Link
-                href="/auth"
-                className="text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 transition-colors px-3 py-1.5 rounded-full"
-              >
-                Login / Register
-              </Link>
+              <Button href="/sell/ai-assist" variant="primary" size="sm">
+                ＋ Sell
+              </Button>
             </>
           )}
         </div>

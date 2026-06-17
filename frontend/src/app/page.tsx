@@ -1,55 +1,13 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api/client";
 import type { ListingSummary, CategorySlug } from "@/lib/api/client";
-
-const CATEGORIES = [
-  { slug: "electronics", label: "Electronics", icon: "💻" },
-  { slug: "vehicles", label: "Vehicles", icon: "🚗" },
-  { slug: "property", label: "Property", icon: "🏠" },
-  { slug: "home_garden", label: "Home & Garden", icon: "🏡" },
-  { slug: "fashion", label: "Fashion", icon: "👗" },
-  { slug: "mobile_phones", label: "Mobile Phones", icon: "📱" },
-  { slug: "services", label: "Services", icon: "🔧" },
-  { slug: "jobs", label: "Jobs", icon: "💼" },
-  { slug: "pets", label: "Pets", icon: "🐾" },
-  { slug: "other", label: "Other", icon: "📦" },
-];
-
-function ListingCard({ item }: { item: ListingSummary }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col hover:shadow-md transition-shadow">
-      <div className="aspect-[4/3] bg-gray-100 flex items-center justify-center">
-        {item.thumbnail_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={item.thumbnail_url}
-            alt={item.title}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <span className="text-4xl text-gray-300">📦</span>
-        )}
-      </div>
-      <div className="p-3 flex flex-col gap-1 flex-1">
-        <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">
-          {item.category.replace("_", " ")}
-        </p>
-        <h3 className="text-sm font-semibold text-gray-800 line-clamp-2 leading-snug">
-          {item.title}
-        </h3>
-        <p className="text-sm font-bold text-gray-900 mt-auto pt-1">
-          {item.price_lkr != null
-            ? `LKR ${item.price_lkr.toLocaleString()}`
-            : "Price on request"}
-        </p>
-      </div>
-    </div>
-  );
-}
+import { CATEGORIES } from "@/lib/categories";
+import Button from "@/components/Button";
+import ListingCard from "@/components/ListingCard";
 
 function HomeContent() {
   const router = useRouter();
@@ -94,118 +52,162 @@ function HomeContent() {
   }
 
   return (
-    <main className="min-h-screen bg-orange-50">
+    <main className="mx-auto max-w-wrap px-6 py-12">
       {/* Hero */}
-      <section className="bg-gradient-to-br from-orange-500 to-orange-600 px-4 py-12 text-center text-white">
-        <h1 className="text-3xl font-bold mb-2">Buy &amp; Sell in Sri Lanka</h1>
-        <p className="text-orange-100 text-sm mb-6">
-          Find electronics, vehicles, property, and more near you.
-        </p>
-        <form
-          onSubmit={handleSearch}
-          className="max-w-md mx-auto flex gap-2"
-          role="search"
-        >
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search listings…"
-            className="flex-1 px-4 py-2.5 rounded-xl text-sm text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-orange-300"
-            aria-label="Search listings"
-          />
-          <button
-            type="submit"
-            className="px-4 py-2.5 bg-white text-orange-600 font-semibold rounded-xl text-sm hover:bg-orange-50 transition-colors"
-          >
-            Search
-          </button>
-        </form>
+      <section
+        className="overflow-hidden rounded-lg text-white"
+        style={{
+          background:
+            "radial-gradient(120% 140% at 85% 10%, #1E3A8A 0%, #16161D 55%)",
+        }}
+      >
+        <div className="grid items-center gap-8 p-8 md:grid-cols-[1.15fr_.85fr] md:p-12">
+          <div>
+            <h1 className="mb-4 text-display font-bold tracking-tight">
+              Buy &amp; sell anything,
+              <br />
+              <span className="text-brand">the trusted way.</span>
+            </h1>
+            <p className="mb-6 max-w-[46ch] text-h3 text-[#C9CBD6]">
+              Sri Lanka&apos;s premium marketplace. Vehicles, property, electronics
+              and more — from verified sellers near you.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Button href="/sell/ai-assist" variant="primary">
+                Start selling — it&apos;s free
+              </Button>
+              <Button href="/listings" variant="ghost-invert">
+                Browse listings
+              </Button>
+            </div>
+            <form
+              onSubmit={handleSearch}
+              role="search"
+              className="mt-6 flex max-w-[520px] items-center gap-2 rounded-pill bg-white p-[7px] pl-[18px] shadow-lg"
+            >
+              <span aria-hidden className="text-muted">
+                🔍
+              </span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="What are you looking for?"
+                aria-label="Search listings"
+                className="min-w-0 flex-1 border-0 bg-transparent text-body text-ink outline-none"
+              />
+              <Button type="submit" variant="secondary" size="sm">
+                Search
+              </Button>
+            </form>
+            <div className="mt-8 flex gap-6 sm:gap-8">
+              {[
+                { n: "120K+", l: "active listings" },
+                { n: "45K+", l: "verified sellers" },
+                { n: "25", l: "districts" },
+              ].map((s) => (
+                <div key={s.l}>
+                  <b className="block text-h2 text-brand">{s.n}</b>
+                  <span className="text-small text-[#A9ABB8]">{s.l}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="hidden rounded-md border border-white/10 bg-white/[0.06] p-6 backdrop-blur md:block">
+            <div className="t-yellow mb-4 grid h-[150px] place-items-center rounded-sm text-[54px]">
+              🚗
+            </div>
+            <span className="badge badge-cat mb-2">🚗 Vehicles</span>
+            <h4 className="text-body">Toyota Aqua 2015 — Hybrid</h4>
+            <div className="mt-2 flex items-center justify-between">
+              <span className="price">LKR 6,950,000</span>
+              <span className="chip-verify">✓ Verified</span>
+            </div>
+            <div className="mt-2 text-small text-[#A9ABB8]">📍 Colombo · Today</div>
+          </div>
+        </div>
       </section>
 
       {/* Categories */}
-      <section className="max-w-5xl mx-auto px-4 py-8">
-        <h2 className="text-base font-semibold text-gray-700 mb-4">
-          Browse by Category
-        </h2>
-        <div className="grid grid-cols-5 gap-3 sm:grid-cols-10">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.slug}
-              onClick={() => handleCategoryClick(cat.slug)}
-              className={`flex flex-col items-center gap-1 p-2 rounded-2xl shadow-sm transition-all text-center ${
-                activeCategory === cat.slug
-                  ? "bg-orange-100 shadow-md"
-                  : "bg-white hover:shadow-md hover:bg-orange-50"
-              }`}
-            >
-              <span className="text-2xl">{cat.icon}</span>
-              <span className="text-xs text-gray-600 font-medium leading-tight">
-                {cat.label}
-              </span>
-            </button>
-          ))}
+      <section className="mt-12">
+        <div className="mb-6 flex items-baseline justify-between">
+          <h2 className="text-h2 font-bold tracking-tight">Browse by category</h2>
+          <Link href="/listings" className="text-body font-medium text-accent">
+            All categories →
+          </Link>
+        </div>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 lg:grid-cols-10">
+          {CATEGORIES.map((cat) => {
+            const active = activeCategory === cat.slug;
+            return (
+              <button
+                key={cat.slug}
+                onClick={() => handleCategoryClick(cat.slug)}
+                className={`flex flex-col items-center gap-2 rounded-md border p-4 px-3 text-center transition-all hover:-translate-y-0.5 hover:shadow-md ${
+                  active
+                    ? "border-brand bg-brand-soft"
+                    : "border-border bg-surface hover:border-brand"
+                }`}
+              >
+                <span className="grid h-[46px] w-[46px] place-items-center rounded-pill bg-surface-2 text-[22px]">
+                  {cat.icon}
+                </span>
+                <span className="text-small font-medium">{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
       {/* Recent listings */}
-      <section className="max-w-5xl mx-auto px-4 pb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-gray-700">
+      <section className="mt-12">
+        <div className="mb-6 flex items-baseline justify-between">
+          <h2 className="text-h2 font-bold tracking-tight">
             {activeCategory
-              ? `Recent in ${CATEGORIES.find((c) => c.slug === activeCategory)?.label ?? activeCategory}`
-              : "Recent Listings"}
+              ? `Recent in ${
+                  CATEGORIES.find((c) => c.slug === activeCategory)?.label ??
+                  activeCategory
+                }`
+              : "Recent listings"}
           </h2>
-          {activeCategory && (
+          {activeCategory ? (
             <button
               onClick={() => handleCategoryClick(activeCategory)}
-              className="text-sm text-orange-500 hover:text-orange-700 font-medium"
+              className="text-body font-medium text-accent hover:text-accent-700"
             >
               Clear ×
             </button>
+          ) : (
+            <Link href="/listings" className="text-body font-medium text-accent">
+              See all →
+            </Link>
           )}
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-2xl shadow-sm overflow-hidden animate-pulse"
-              >
-                <div className="aspect-[4/3] bg-gray-200" />
-                <div className="p-3 space-y-2">
-                  <div className="h-3 bg-gray-200 rounded w-1/2" />
-                  <div className="h-4 bg-gray-200 rounded" />
-                  <div className="h-3 bg-gray-200 rounded w-1/3 mt-2" />
+              <div key={i} className="card animate-pulse">
+                <div className="aspect-[4/3] bg-surface-2" />
+                <div className="space-y-2 p-4">
+                  <div className="h-3 w-1/2 rounded bg-surface-2" />
+                  <div className="h-4 rounded bg-surface-2" />
+                  <div className="mt-2 h-3 w-1/3 rounded bg-surface-2" />
                 </div>
               </div>
             ))}
           </div>
         ) : recent.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm p-10 text-center">
-            <p className="text-gray-400 text-sm">No listings yet.</p>
+          <div className="panel p-10 text-center">
+            <p className="text-small text-muted">No listings yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {recent.map((item) => (
               <ListingCard key={item.id} item={item} />
             ))}
           </div>
         )}
-      </section>
-
-      {/* Sell CTA */}
-      <section className="bg-white border-t border-gray-100 px-4 py-8 text-center">
-        <p className="text-gray-700 font-medium mb-3">
-          Have something to sell?
-        </p>
-        <Link
-          href="/sell/ai-assist"
-          className="inline-block bg-orange-500 text-white px-6 py-2.5 rounded-full text-sm font-semibold hover:bg-orange-600 transition-colors"
-        >
-          Post a listing
-        </Link>
       </section>
     </main>
   );
@@ -215,8 +217,8 @@ export default function Home() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-orange-50 flex items-center justify-center">
-          <p className="text-gray-400 text-sm">Loading…</p>
+        <main className="flex min-h-screen items-center justify-center">
+          <p className="text-small text-muted">Loading…</p>
         </main>
       }
     >
