@@ -11,6 +11,7 @@ import (
 	"github.com/madura7/ai-elamachan/backend/internal/aiassist"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
+	"github.com/madura7/ai-elamachan/backend/internal/inquiries"
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
 	"github.com/madura7/ai-elamachan/backend/internal/middleware"
 	"github.com/madura7/ai-elamachan/backend/internal/search"
@@ -61,6 +62,19 @@ func main() {
 	} else {
 		if bearer != nil {
 			h.SetAuth(bearer, verifyToken)
+		}
+		h.RegisterRoutes(mux)
+	}
+
+	// Inquiry persistence + seller inbox (VER-297, VER-295 M1).
+	// Requires DATABASE_URL and bearer auth.
+	if h, err := inquiries.NewHandlerFromEnv(); err != nil {
+		log.Printf("inquiries: endpoints disabled: %v", err)
+		mux.HandleFunc("POST /api/v1/listings/{listingId}/inquiries", inquiriesUnavailable)
+		mux.HandleFunc("GET /api/v1/inquiries", inquiriesUnavailable)
+	} else {
+		if bearer != nil {
+			h.SetBearer(bearer)
 		}
 		h.RegisterRoutes(mux)
 	}
@@ -116,6 +130,17 @@ func listingsUnavailable(w http.ResponseWriter, r *http.Request) {
 		"error": map[string]string{
 			"code":    "listings_unavailable",
 			"message": "Listings endpoints are not configured on this server (check DATABASE_URL)",
+		},
+	})
+}
+
+func inquiriesUnavailable(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]string{
+			"code":    "inquiries_unavailable",
+			"message": "Inquiries endpoints are not configured on this server (check DATABASE_URL)",
 		},
 	})
 }
