@@ -43,6 +43,8 @@ tags:
     description: Localized category taxonomy (ADR 0001). Stub.
   - name: search
     description: Listing search (Meilisearch-backed). Stub.
+  - name: inquiries
+    description: Buyer→seller inquiry contact path (VER-295 M1).
 
 paths:
   /listings/ai-draft:
@@ -355,6 +357,83 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /listings/{listingId}/inquiries:
+    post:
+      tags: [inquiries]
+      operationId: createInquiry
+      summary: Submit a buyer inquiry about a listing
+      description: |
+        Creates a buyer→seller inquiry message for the given listing.
+        Requires authentication. Returns 422 when the caller owns the listing
+        (own-listing guard) or when the message is blank / exceeds 1000 chars.
+        On first contact for a (buyer, listing) pair, emits a connection-event
+        metric (North-Star). Repeat inquiries on the same listing do NOT emit
+        a second event.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: listingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InquiryCreate"
+      responses:
+        "201":
+          description: Inquiry created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inquiry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Validation failed (own listing, blank message, or message too long).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inquiries:
+    get:
+      tags: [inquiries]
+      operationId: listSellerInquiries
+      summary: Seller inbox — inquiries across the caller's listings
+      description: |
+        Returns inquiries on listings owned by the authenticated caller, newest
+        first. `buyer_label` is the buyer's display name if present, else a
+        stable pseudonymous label (e.g. `Buyer-7F3A`). Phone and email are
+        never included. Optional `?listing_id=` filter narrows to one listing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: listing_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Optional filter — return inquiries for this listing only.
+      responses:
+        "200":
+          description: List of seller inquiries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SellerInquiry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /search:
     get:
@@ -748,4 +827,67 @@ components:
           description: Category facet counts returned by search endpoints (absent on listing-only endpoints).
           additionalProperties:
             type: integer
+      additionalProperties: false
+
+    InquiryCreate:
+      type: object
+      description: Request body for POST /listings/{listingId}/inquiries.
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: The buyer's message to the seller (1–1000 chars, non-blank).
+      additionalProperties: false
+
+    Inquiry:
+      type: object
+      description: |
+        Response for a created inquiry. Intentionally omits seller PII
+        (phone, email, display_name).
+      required: [id, listing_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [new, read, replied]
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SellerInquiry:
+      type: object
+      description: |
+        One inbox entry in the seller's inquiry view. `buyer_label` is the
+        buyer's display name when available, else a stable pseudonym derived
+        from a hash of the buyer id (e.g. `Buyer-7F3A`). Phone and email are
+        never included.
+      required: [id, listing_id, listing_title, buyer_label, message, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        listing_title:
+          type: string
+        buyer_label:
+          type: string
+          description: Buyer display name if known, else a stable pseudonym. Never phone/email.
+        message:
+          type: string
+        status:
+          type: string
+          enum: [new, read, replied]
+        created_at:
+          type: string
+          format: date-time
       additionalProperties: false
