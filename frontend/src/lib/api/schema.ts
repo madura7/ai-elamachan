@@ -166,6 +166,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listings/{listingId}/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a buyer inquiry about a listing
+         * @description Creates a buyer→seller inquiry message for the given listing.
+         *     Requires authentication. Returns 422 when the caller owns the listing
+         *     (own-listing guard) or when the message is blank / exceeds 1000 chars.
+         *     On first contact for a (buyer, listing) pair, emits a connection-event
+         *     metric (North-Star). Repeat inquiries on the same listing do NOT emit
+         *     a second event.
+         *
+         */
+        post: operations["createInquiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inquiries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Seller inbox — inquiries across the caller's listings
+         * @description Returns inquiries on listings owned by the authenticated caller, newest
+         *     first. `buyer_label` is the buyer's display name if present, else a
+         *     stable pseudonymous label (e.g. `Buyer-7F3A`). Phone and email are
+         *     never included. Optional `?listing_id=` filter narrows to one listing.
+         *
+         */
+        get: operations["listSellerInquiries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -361,6 +411,43 @@ export interface components {
             facets?: {
                 [key: string]: number;
             };
+        };
+        /** @description Request body for POST /listings/{listingId}/inquiries. */
+        InquiryCreate: {
+            /** @description The buyer's message to the seller (1–1000 chars, non-blank). */
+            message: string;
+        };
+        /** @description Response for a created inquiry. Intentionally omits seller PII
+         *     (phone, email, display_name).
+         *      */
+        Inquiry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            listing_id: string;
+            /** @enum {string} */
+            status: "new" | "read" | "replied";
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description One inbox entry in the seller's inquiry view. `buyer_label` is the
+         *     buyer's display name when available, else a stable pseudonym derived
+         *     from a hash of the buyer id (e.g. `Buyer-7F3A`). Phone and email are
+         *     never included.
+         *      */
+        SellerInquiry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            listing_id: string;
+            listing_title: string;
+            /** @description Buyer display name if known, else a stable pseudonym. Never phone/email. */
+            buyer_label: string;
+            message: string;
+            /** @enum {string} */
+            status: "new" | "read" | "replied";
+            /** Format: date-time */
+            created_at: string;
         };
     };
     responses: {
@@ -713,6 +800,67 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    createInquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                listingId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InquiryCreate"];
+            };
+        };
+        responses: {
+            /** @description Inquiry created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inquiry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description Validation failed (own listing, blank message, or message too long). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listSellerInquiries: {
+        parameters: {
+            query?: {
+                /** @description Optional filter — return inquiries for this listing only. */
+                listing_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of seller inquiries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SellerInquiry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     searchListings: {

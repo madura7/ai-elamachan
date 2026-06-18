@@ -82,6 +82,24 @@ export function deleteListing(id: string, token: string): Promise<void> {
   return authorizedFetch<void>(`/listings/${id}`, token, { method: "DELETE" });
 }
 
+export function createInquiry(
+  listingId: string,
+  message: string,
+  token: string
+): Promise<components["schemas"]["Inquiry"]> {
+  return authorizedFetch(`/listings/${listingId}/inquiries`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+}
+
+export function listSellerInquiries(
+  token: string
+): Promise<components["schemas"]["SellerInquiry"][]> {
+  return authorizedFetch(`/inquiries`, token);
+}
+
 export function uploadListingImage(
   listingId: string,
   file: File,

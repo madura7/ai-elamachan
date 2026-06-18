@@ -26,5 +26,8 @@ export type CategorySlug = components["schemas"]["CategorySlug"];
 export type Lang = components["schemas"]["Lang"];
 export type ApiError = components["schemas"]["Error"];
 export type User = components["schemas"]["User"];
+export type InquiryCreate = components["schemas"]["InquiryCreate"];
+export type Inquiry = components["schemas"]["Inquiry"];
+export type SellerInquiry = components["schemas"]["SellerInquiry"];
 
 export type { paths, components } from "./schema";
