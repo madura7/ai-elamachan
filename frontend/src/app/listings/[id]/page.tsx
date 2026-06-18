@@ -1,20 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api/client";
 import type { Listing } from "@/lib/api/client";
 import { categoryMeta, formatPrice } from "@/lib/categories";
+import { isAuthenticated, getToken } from "@/lib/auth";
 import Button from "@/components/Button";
+import InquiryModal from "@/components/InquiryModal";
 
 export default function ListingDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
 
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showInquiry, setShowInquiry] = useState(false);
+  const [alreadyMessaged, setAlreadyMessaged] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -31,6 +36,14 @@ export default function ListingDetailPage() {
       .catch(() => setError("Failed to load listing"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  function handleContactCTA() {
+    if (!isAuthenticated()) {
+      router.push(`/auth?return=/listings/${id}`);
+      return;
+    }
+    setShowInquiry(true);
+  }
 
   if (loading) {
     return (
@@ -61,6 +74,7 @@ export default function ListingDetailPage() {
   }
 
   const cat = categoryMeta(listing.category);
+  const token = getToken();
 
   return (
     <main className="mx-auto max-w-wrap px-6 py-8">
@@ -118,10 +132,15 @@ export default function ListingDetailPage() {
               <span className="price price-lg">{formatPrice(listing.price_lkr)}</span>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              {/* Contact is gated behind auth (interactions require login). */}
-              <Button href="/auth" variant="primary" block>
-                💬 Message seller
-              </Button>
+              {alreadyMessaged ? (
+                <div className="flex-1 rounded-sm border border-border bg-surface-2 px-4 py-2.5 text-center text-small text-muted">
+                  ✉️ Message sent
+                </div>
+              ) : (
+                <Button onClick={handleContactCTA} variant="primary" block>
+                  💬 Message seller
+                </Button>
+              )}
               <Button href="/auth" variant="secondary" block>
                 💰 Make an offer
               </Button>
@@ -148,6 +167,17 @@ export default function ListingDetailPage() {
           </div>
         </div>
       </div>
+
+      {showInquiry && token && (
+        <InquiryModal
+          listingId={id}
+          listingTitle={listing.title}
+          priceLkr={listing.price_lkr}
+          token={token}
+          onClose={() => setShowInquiry(false)}
+          onSuccess={() => setAlreadyMessaged(true)}
+        />
+      )}
     </main>
   );
 }

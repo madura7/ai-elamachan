@@ -12,9 +12,10 @@ import {
   getMyListings,
   updateListing,
   deleteListing,
+  listSellerInquiries,
 } from "@/lib/api/helpers";
 import type { ListingSummaryWithThumb, UpdateListingBody } from "@/lib/api/helpers";
-import type { CategorySlug } from "@/lib/api/client";
+import type { CategorySlug, SellerInquiry } from "@/lib/api/client";
 import Image from "next/image";
 
 const CATEGORIES = [
@@ -29,6 +30,27 @@ const CATEGORIES = [
   { value: "pets", label: "Pets" },
   { value: "other", label: "Other" },
 ];
+
+type DashTab = "listings" | "inquiries";
+
+// Compact relative-time label for inbox rows (e.g. "2h ago", "Yesterday").
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffMs = Date.now() - then;
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return "Just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  });
+}
 
 interface EditState {
   listing: ListingSummaryWithThumb;
@@ -57,6 +79,11 @@ export default function DashboardPage() {
 
   const [toast, setToast] = useState<string | null>(null);
 
+  const [tab, setTab] = useState<DashTab>("listings");
+  const [inquiries, setInquiries] = useState<SellerInquiry[]>([]);
+  const [inqLoading, setInqLoading] = useState(true);
+  const [inqError, setInqError] = useState<string | null>(null);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
@@ -75,8 +102,21 @@ export default function DashboardPage() {
         .then((page) => setListings(page.items))
         .catch(() => setLoadError(t("en", "errorLoading")))
         .finally(() => setLoading(false));
+      listSellerInquiries(token)
+        .then((items) =>
+          setInquiries(
+            [...items].sort(
+              (a, b) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )
+          )
+        )
+        .catch(() => setInqError("Couldn’t load your inquiries."))
+        .finally(() => setInqLoading(false));
     }
   }, [router]);
+
+  const newCount = inquiries.filter((i) => i.status === "new").length;
 
   function handleSignOut() {
     clearAuth();
@@ -167,6 +207,131 @@ export default function DashboardPage() {
       </div>
 
       <div className="px-4 py-6 max-w-2xl mx-auto">
+        {/* Tabs: My listings · Inquiries */}
+        <div className="flex gap-1 border-b border-border mb-5">
+          <button
+            onClick={() => setTab("listings")}
+            className={`px-4 py-2.5 text-small font-medium -mb-px border-b-2 transition-colors ${
+              tab === "listings"
+                ? "border-accent text-ink"
+                : "border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            {t(locale, "myListings")}
+          </button>
+          <button
+            onClick={() => setTab("inquiries")}
+            className={`px-4 py-2.5 text-small font-medium -mb-px border-b-2 transition-colors flex items-center gap-2 ${
+              tab === "inquiries"
+                ? "border-accent text-ink"
+                : "border-transparent text-muted hover:text-ink"
+            }`}
+          >
+            Inquiries
+            {newCount > 0 && (
+              <span
+                className="text-caption font-bold px-2 py-0.5 rounded-pill"
+                style={{ background: "var(--c-yellow-soft, #FFF3CD)", color: "var(--c-yellow-600, #D99700)" }}
+              >
+                {newCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {tab === "inquiries" && (
+          <section aria-label="Seller inbox">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-h3 font-semibold text-ink-2">Inquiries</h2>
+              {newCount > 0 && (
+                <span
+                  className="text-caption font-bold px-3 py-1 rounded-pill"
+                  style={{ background: "var(--c-yellow-soft, #FFF3CD)", color: "var(--c-yellow-600, #D99700)" }}
+                >
+                  {newCount} new
+                </span>
+              )}
+            </div>
+
+            {inqLoading && (
+              <div className="panel text-center">
+                <p className="text-small text-muted">{t(locale, "loading")}</p>
+              </div>
+            )}
+
+            {!inqLoading && inqError && (
+              <div className="bg-red-50 border border-red-200 rounded-md p-4 text-small text-red-600">
+                {inqError}
+              </div>
+            )}
+
+            {!inqLoading && !inqError && inquiries.length === 0 && (
+              <div className="panel p-8 text-center">
+                <div className="w-16 h-16 rounded-md bg-surface-2 border border-border flex items-center justify-center mx-auto mb-4 text-2xl text-muted">
+                  ✉️
+                </div>
+                <h3 className="font-semibold text-ink mb-2">No inquiries yet</h3>
+                <p className="text-small text-muted max-w-sm mx-auto mb-5">
+                  When a buyer messages you about a listing, it shows up here.
+                  We’ll never share your phone or email.
+                </p>
+                <Button variant="primary" size="sm" onClick={() => setTab("listings")}>
+                  View my listings
+                </Button>
+              </div>
+            )}
+
+            {!inqLoading && !inqError && inquiries.length > 0 && (
+              <div className="space-y-3">
+                {inquiries.map((inq) => {
+                  const unread = inq.status === "new";
+                  const initials = inq.buyer_label.replace(/[^A-Za-z0-9]/g, "").slice(-2).toUpperCase();
+                  return (
+                    <div
+                      key={inq.id}
+                      className={`card p-4 flex gap-3 items-start ${
+                        unread ? "border-l-4 border-l-accent" : ""
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-surface-2 flex-shrink-0 flex items-center justify-center text-caption font-bold text-ink-2">
+                        {initials || "??"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-small font-semibold text-ink">{inq.buyer_label}</span>
+                          {unread && (
+                            <span
+                              className="text-caption font-bold uppercase tracking-wide px-2 py-0.5 rounded-pill"
+                              style={{ background: "var(--c-yellow-soft, #FFF3CD)", color: "var(--c-yellow-600, #D99700)" }}
+                            >
+                              New
+                            </span>
+                          )}
+                          <span className="text-caption text-muted ml-auto">{timeAgo(inq.created_at)}</span>
+                        </div>
+                        <p className="text-caption text-muted mt-0.5">
+                          on <span className="text-ink-2 font-medium">{inq.listing_title}</span>
+                        </p>
+                        <p className="text-small text-ink-2 mt-1.5 whitespace-pre-wrap break-words">
+                          {inq.message}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center gap-2 text-caption text-muted bg-surface-2 rounded-md px-4 py-3">
+                  <span aria-hidden>🔒</span>
+                  <span>
+                    Replies aren’t available yet. No contact details are shared either way.
+                  </span>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {tab === "listings" && (
+        <>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-h3 font-semibold text-ink-2">{t(locale, "myListings")}</h2>
           <Button
@@ -248,6 +413,8 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        )}
+        </>
         )}
       </div>
 
