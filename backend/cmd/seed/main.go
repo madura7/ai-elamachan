@@ -36,14 +36,12 @@ func main() {
 	}
 	log.Println("seed: postgres OK")
 
-	meiliURL := os.Getenv("MEILI_URL")
-	meiliKey := os.Getenv("MEILI_MASTER_KEY")
-	if meiliURL == "" || meiliKey == "" {
+	if os.Getenv("MEILI_URL") == "" || os.Getenv("MEILI_MASTER_KEY") == "" {
 		log.Println("seed: MEILI_URL/MEILI_MASTER_KEY not set — skipping Meilisearch")
 		return
 	}
 
-	if err := seedMeilisearch(ctx, meiliURL, meiliKey); err != nil {
+	if err := seedMeilisearch(ctx); err != nil {
 		log.Fatalf("seed: meilisearch: %v", err)
 	}
 	log.Println("seed: meilisearch OK")

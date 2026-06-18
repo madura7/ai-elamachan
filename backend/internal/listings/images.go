@@ -211,6 +211,9 @@ func (h *Handler) confirmImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort index upsert: refresh has_image + thumbnail_url after confirm.
+	h.triggerIndex(r.Context(), listingID)
+
 	writeJSON(w, http.StatusOK, Image{
 		ID:        req.ImageID,
 		URL:       publicURL,
@@ -265,6 +268,9 @@ func (h *Handler) deleteImage(w http.ResponseWriter, r *http.Request) {
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not delete image")
 		return
 	}
+
+	// Best-effort index upsert: refresh has_image after image deletion.
+	h.triggerIndex(r.Context(), listingID)
 
 	w.WriteHeader(http.StatusNoContent)
 }

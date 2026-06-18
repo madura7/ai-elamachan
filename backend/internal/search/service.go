@@ -1,9 +1,8 @@
 // Package search wraps Meilisearch for ElaMachan listing search.
 //
-// The service operates in search-only mode: it queries the existing index
-// without modifying its settings. This keeps it compatible with seed documents
-// (cmd/seed) which use flat title/description/category_slug fields, as well as
-// future per-language documents from a full indexing pipeline.
+// The service supports both full-text queries and empty-query browse requests.
+// Index settings (sortableAttributes + rankingRules) are applied idempotently
+// at startup via EnsureIndex; the same helper is used by seed and backfill.
 package search
 
 import (
@@ -19,8 +18,9 @@ import (
 // indexUID is the single Meilisearch index backing listing search.
 const indexUID = "listings"
 
-// Service owns the Meilisearch client and exposes Search.
-// A nil *Service is the "search disabled" sentinel.
+// Service owns the Meilisearch client and exposes Search, EnsureIndex,
+// IndexListing, RemoveListing, and BatchIndexListings.
+// A nil *Service is the "search disabled" sentinel; all methods are nil-safe.
 type Service struct {
 	client *meilisearch.Client
 	index  *meilisearch.Index
@@ -30,7 +30,7 @@ type Service struct {
 // Returns (nil, nil) when MEILI_URL is unset — callers treat nil as "search
 // disabled" and return 503 on search requests.
 // Constructing the client does not open a connection; per-call errors surface
-// lazily at search time.
+// lazily.
 func NewFromEnv() (*Service, error) {
 	host := os.Getenv("MEILI_URL")
 	if host == "" {
@@ -47,14 +47,13 @@ func NewFromEnv() (*Service, error) {
 	}, nil
 }
 
-// Search runs a full-text query against the listings index and returns a page
-// of results. It handles both seed-format documents (flat title/category_slug)
-// and per-language documents (title_en/category fields) by delegating title and
-// category resolution to the Document helper methods.
+// Search runs a query against the listings index and returns a page of results.
+// When p.Query is empty (browse/catalog mode) an explicit sort is applied to
+// produce has_image DESC, created_at DESC ordering — matching GET /listings.
 //
-// Uses Limit/Offset pagination (not Page/HitsPerPage) for compatibility with
-// the Meilisearch version bundled in the Fly.io image. Only requests facets
-// for fields that are actually in the seed's filterableAttributes.
+// Handles both seed-format documents (flat title/category_slug) and
+// service-indexed per-language documents via the Document helper methods.
+// Uses Limit/Offset pagination for Meilisearch version compatibility.
 func (s *Service) Search(_ context.Context, p Params) (*Result, error) {
 	req := &meilisearch.SearchRequest{
 		Limit:  int64(p.PageSize),
@@ -62,8 +61,12 @@ func (s *Service) Search(_ context.Context, p Params) (*Result, error) {
 		Facets: []string{"category_slug"},
 	}
 	if p.Category != "" {
-		// The seed index has category_slug in filterableAttributes.
 		req.Filter = fmt.Sprintf(`category_slug = %q`, p.Category)
+	}
+	// For empty-query / browse requests, apply explicit sort so that ordering
+	// is deterministic and matches GET /listings (has_image DESC, created_at DESC).
+	if p.Query == "" {
+		req.Sort = []string{"has_image:desc", "created_at:desc"}
 	}
 
 	resp, err := s.index.Search(p.Query, req)

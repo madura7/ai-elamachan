@@ -50,9 +50,29 @@ func main() {
 		h.RegisterRoutes(mux)
 	}
 
+	// Full-text search via Meilisearch (VER-225, VER-338).
+	// Constructed first so the indexer can be wired into the listings handler.
+	// When MEILI_URL is absent the endpoint returns 503; listings still work.
+	// EnsureIndex applies sortable attributes and ranking rules idempotently
+	// at startup (safe across multiple instances).
+	var searchSvc *search.Service
+	if svc, err := search.NewFromEnv(); err != nil {
+		log.Printf("search: endpoint disabled: %v", err)
+		mux.HandleFunc("GET /api/v1/search", searchUnavailable)
+	} else {
+		searchSvc = svc
+		if svc != nil {
+			if err := svc.EnsureIndex(context.Background()); err != nil {
+				log.Printf("search: EnsureIndex: %v (continuing)", err)
+			}
+		}
+		search.NewHandler(svc).Register(mux)
+	}
+
 	// Listings browse, create, and category taxonomy (VER-225, VER-289).
 	// Requires DATABASE_URL. Falls back to 503 stubs when DB is unavailable.
 	// POST /listings and GET /listings?mine=true require bearer auth.
+	// When search is configured, live indexing is wired in (VER-338).
 	if h, err := listings.NewHandlerFromEnv(); err != nil {
 		log.Printf("listings: endpoints disabled: %v", err)
 		mux.HandleFunc("GET /api/v1/listings", listingsUnavailable)
@@ -64,25 +84,18 @@ func main() {
 			h.SetAuth(bearer, verifyToken)
 		}
 		// Object storage for listing images (VER-299). When BLOB_* is unset the
-		// store is nil and the image endpoints return 503 — the service still
-		// boots before storage is provisioned (same pattern as auth/search).
+		// store is nil and the image endpoints return 503.
 		if store, serr := storage.NewFromEnv(); serr != nil {
 			log.Printf("listings: image storage disabled: %v", serr)
 		} else if store != nil {
 			h.SetStore(store)
 		}
+		// Live search indexer (VER-338). When search is unconfigured, lifecycle
+		// events are not reflected in the index until a manual reindex.
+		if searchSvc != nil {
+			h.SetIndexer(searchSvc)
+		}
 		h.RegisterRoutes(mux)
-	}
-
-	// Full-text search via Meilisearch (VER-225).
-	// Optional: when MEILI_URL is absent the endpoint returns 503 rather than
-	// crashing the whole service. This mirrors the graceful-degradation pattern
-	// used by auth and ai-assist.
-	if svc, err := search.NewFromEnv(); err != nil {
-		log.Printf("search: endpoint disabled: %v", err)
-		mux.HandleFunc("GET /api/v1/search", searchUnavailable)
-	} else {
-		search.NewHandler(svc).Register(mux)
 	}
 
 	port := os.Getenv("BACKEND_PORT")

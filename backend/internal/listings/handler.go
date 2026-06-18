@@ -33,6 +33,7 @@ type Handler struct {
 	verifyToken func(ctx context.Context, token string) (string, error)
 	store       storage.BlobStore
 	maxBytes    int64
+	indexer     ListingIndexer // nil = no-op
 }
 
 // NewHandlerFromEnv constructs a Handler from DATABASE_URL.
@@ -62,6 +63,12 @@ func (h *Handler) SetAuth(
 ) {
 	h.bearer = bearer
 	h.verifyToken = verify
+}
+
+// SetIndexer wires the search indexer. When nil, lifecycle events are not
+// reflected in the search index until a manual reindex is run.
+func (h *Handler) SetIndexer(idx ListingIndexer) {
+	h.indexer = idx
 }
 
 // SetStore wires the object-storage backend used by the image upload endpoints.
@@ -431,6 +438,9 @@ func (h *Handler) createListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort index upsert after commit (create: has_image always false).
+	h.triggerIndex(r.Context(), listingID)
+
 	var priceLKR *int64
 	if priceCents.Valid {
 		lkr := priceCents.Int64 / 100
@@ -552,6 +562,9 @@ func (h *Handler) updateListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort index upsert after commit (reflects updated category/price/title).
+	h.triggerIndex(r.Context(), id)
+
 	var priceLKR *int64
 	if priceCents.Valid {
 		lkr := priceCents.Int64 / 100
@@ -606,6 +619,9 @@ func (h *Handler) deleteListing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort index removal after soft-delete.
+	h.triggerRemove(r.Context(), id)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -617,6 +633,76 @@ func (h *Handler) listingOwner(ctx context.Context, id string) (ownerID, content
 		SELECT user_id, content_language FROM listings WHERE id = $1 AND status = 'active'
 	`, id).Scan(&ownerID, &contentLang)
 	return ownerID, contentLang, err
+}
+
+// buildIndexDoc loads the fields needed for search indexing from the DB.
+// Returns sql.ErrNoRows when the listing is not found or not active.
+func (h *Handler) buildIndexDoc(ctx context.Context, id string) (*IndexableDoc, error) {
+	var doc IndexableDoc
+	var priceCents sql.NullInt64
+	var thumbnailURL sql.NullString
+	var title sql.NullString
+
+	err := h.db.QueryRowContext(ctx, `
+		SELECT l.id,
+		       c.slug,
+		       l.content_language,
+		       l.price_cents,
+		       l.created_at,
+		       (SELECT title FROM listing_translations
+		          WHERE listing_id = l.id AND lang = l.content_language LIMIT 1),
+		       (SELECT url FROM listing_images
+		          WHERE listing_id = l.id AND status = 'active'
+		          ORDER BY sort_order LIMIT 1),
+		       EXISTS(SELECT 1 FROM listing_images
+		          WHERE listing_id = l.id AND status = 'active') AS has_image
+		FROM listings l
+		JOIN categories c ON c.id = l.category_id
+		WHERE l.id = $1 AND l.status = 'active'
+	`, id).Scan(&doc.ID, &doc.Category, &doc.ContentLanguage,
+		&priceCents, &doc.CreatedAt, &title, &thumbnailURL, &doc.HasImage)
+	if err != nil {
+		return nil, err
+	}
+	if priceCents.Valid {
+		lkr := priceCents.Int64 / 100
+		doc.PriceLKR = &lkr
+	}
+	if thumbnailURL.Valid && thumbnailURL.String != "" {
+		u := thumbnailURL.String
+		doc.ThumbnailURL = &u
+	}
+	if title.Valid {
+		doc.Title = title.String
+	}
+	return &doc, nil
+}
+
+// triggerIndex upserts a listing in the search index after a DB commit.
+// Best-effort: failures are logged but never propagated to the caller.
+func (h *Handler) triggerIndex(ctx context.Context, id string) {
+	if h.indexer == nil {
+		return
+	}
+	doc, err := h.buildIndexDoc(ctx, id)
+	if err != nil {
+		log.Printf("listings: indexer: load doc %s: %v", id, err)
+		return
+	}
+	if err := h.indexer.IndexListing(ctx, *doc); err != nil {
+		log.Printf("listings: indexer: upsert %s: %v", id, err)
+	}
+}
+
+// triggerRemove removes a listing from the search index after a soft-delete.
+// Best-effort: failures are logged but never propagated.
+func (h *Handler) triggerRemove(ctx context.Context, id string) {
+	if h.indexer == nil {
+		return
+	}
+	if err := h.indexer.RemoveListing(ctx, id); err != nil {
+		log.Printf("listings: indexer: remove %s: %v", id, err)
+	}
 }
 
 // listCategories serves GET /api/v1/categories with the requested lang

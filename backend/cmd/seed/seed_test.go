@@ -119,24 +119,27 @@ func joinStrings(ss []string, sep string) string {
 	return out
 }
 
-// TestBuildMeiliDocs verifies document shape without any HTTP calls.
-func TestBuildMeiliDocs(t *testing.T) {
-	docs := buildMeiliDocs()
+// TestBuildSeedIndexDocs verifies that seed docs are built correctly.
+func TestBuildSeedIndexDocs(t *testing.T) {
+	docs := buildSeedIndexDocs()
 	if len(docs) != len(allListings) {
 		t.Fatalf("expected %d docs, got %d", len(allListings), len(docs))
 	}
-	requiredKeys := []string{"id", "title", "description", "category_slug", "price_cents", "currency", "status", "lang"}
 	for i, d := range docs {
-		for _, k := range requiredKeys {
-			if _, ok := d[k]; !ok {
-				t.Errorf("doc[%d] missing key %q", i, k)
-			}
+		if d.ID == "" {
+			t.Errorf("doc[%d] missing ID", i)
 		}
-		if d["currency"] != "LKR" {
-			t.Errorf("doc[%d] currency = %q, want LKR", i, d["currency"])
+		if d.Category == "" {
+			t.Errorf("doc[%d] missing Category", i)
 		}
-		if d["status"] != "active" {
-			t.Errorf("doc[%d] status = %q, want active", i, d["status"])
+		if d.Title == "" {
+			t.Errorf("doc[%d] missing Title", i)
+		}
+		if d.HasImage {
+			t.Errorf("doc[%d] HasImage should be false for seed listings", i)
+		}
+		if d.PriceLKR == nil {
+			t.Errorf("doc[%d] PriceLKR should not be nil", i)
 		}
 	}
 }

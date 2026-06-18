@@ -1,14 +1,12 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"time"
+
+	"github.com/madura7/ai-elamachan/backend/internal/listings"
+	"github.com/madura7/ai-elamachan/backend/internal/search"
 )
 
 // Stable synthetic identifiers for seed/test users.
@@ -293,24 +291,19 @@ func upsertCategory(ctx context.Context, tx *sql.Tx, c catSeed) error {
 
 // ── Meilisearch ──────────────────────────────────────────────────────────────
 
-var meiliSettings = map[string]any{
-	"searchableAttributes": []string{"title", "description", "category_slug"},
-	"filterableAttributes": []string{"category_slug", "status", "currency"},
-	"sortableAttributes":   []string{"price_cents"},
-}
-
-func buildMeiliDocs() []map[string]any {
-	docs := make([]map[string]any, len(allListings))
+// buildSeedIndexDocs converts the in-memory seed data into IndexableDocs.
+// Seed listings have no images (has_image = false).
+func buildSeedIndexDocs() []listings.IndexableDoc {
+	docs := make([]listings.IndexableDoc, len(allListings))
 	for i, l := range allListings {
-		docs[i] = map[string]any{
-			"id":            l.id,
-			"title":         l.title,
-			"description":   l.description,
-			"category_slug": l.catSlug,
-			"price_cents":   l.priceCents,
-			"currency":      "LKR",
-			"status":        "active",
-			"lang":          l.lang,
+		priceLKR := l.priceCents / 100
+		docs[i] = listings.IndexableDoc{
+			ID:              l.id,
+			Category:        l.catSlug,
+			ContentLanguage: l.lang,
+			Title:           l.title,
+			HasImage:        false,
+			PriceLKR:        &priceLKR,
 		}
 	}
 	return docs
@@ -318,101 +311,23 @@ func buildMeiliDocs() []map[string]any {
 
 // seedMeilisearch ensures the listings index exists with correct settings,
 // then upserts the demo documents. All operations are idempotent.
-func seedMeilisearch(ctx context.Context, baseURL, apiKey string) error {
-	if err := ensureMeiliIndex(ctx, baseURL, apiKey); err != nil {
-		return err
+// Reads MEILI_URL and MEILI_MASTER_KEY from environment.
+func seedMeilisearch(ctx context.Context) error {
+	svc, err := search.NewFromEnv()
+	if err != nil {
+		return fmt.Errorf("search client: %w", err)
+	}
+	if svc == nil {
+		return fmt.Errorf("MEILI_URL not set")
 	}
 
-	if err := meiliReq(ctx, "PATCH", baseURL, "/indexes/listings/settings", apiKey, meiliSettings); err != nil {
-		return fmt.Errorf("update settings: %w", err)
+	if err := svc.EnsureIndex(ctx); err != nil {
+		return fmt.Errorf("ensure index: %w", err)
 	}
 
-	if err := meiliReq(ctx, "PUT", baseURL, "/indexes/listings/documents", apiKey, buildMeiliDocs()); err != nil {
+	if err := svc.BatchIndexListings(ctx, buildSeedIndexDocs()); err != nil {
 		return fmt.Errorf("push documents: %w", err)
 	}
 
-	return nil
-}
-
-// ensureMeiliIndex checks whether the listings index exists and creates it if
-// not. It polls until the index is ready (up to 10 s) before returning.
-func ensureMeiliIndex(ctx context.Context, baseURL, apiKey string) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/indexes/listings", nil)
-	if err != nil {
-		return fmt.Errorf("check index: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("check index: %w", err)
-	}
-	resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		return nil // index already exists
-	}
-	if resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("check index: unexpected status %d", resp.StatusCode)
-	}
-
-	// Create index and wait for it to become available.
-	if err := meiliReq(ctx, "POST", baseURL, "/indexes", apiKey, map[string]string{
-		"uid":        "listings",
-		"primaryKey": "id",
-	}); err != nil {
-		return fmt.Errorf("create index: %w", err)
-	}
-
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		req, err := http.NewRequestWithContext(ctx, "GET", baseURL+"/indexes/listings", nil)
-		if err != nil {
-			return fmt.Errorf("wait for index: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("wait for index: %w", err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			return nil
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	return fmt.Errorf("meilisearch listings index not ready after 10s")
-}
-
-func meiliReq(ctx context.Context, method, baseURL, path, apiKey string, body any) error {
-	var reqBody io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("marshal body: %w", err)
-		}
-		reqBody = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, baseURL+path, reqBody)
-	if err != nil {
-		return fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		respData, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respData))
-	}
 	return nil
 }

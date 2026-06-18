@@ -39,10 +39,8 @@ func (h *Handler) search(w http.ResponseWriter, r *http.Request) {
 	}
 
 	q := r.URL.Query().Get("q")
-	if q == "" {
-		apierr.Write(w, http.StatusBadRequest, "missing_query", "q parameter is required")
-		return
-	}
+	// q may be empty for browse/catalog-mode requests; the service applies
+	// explicit sort (has_image:desc, created_at:desc) in that case.
 
 	lang := r.URL.Query().Get("lang")
 	if lang != "" && !listings.ValidLangs[lang] {
