@@ -140,12 +140,27 @@ export interface paths {
         };
         /**
          * Get a single listing
-         * @description **Stub** — finalized by the listings issue.
+         * @description Returns one listing with title/description resolved to the requested language (ADR 0001 fallback).
          */
         get: operations["getListing"];
-        put?: never;
+        /**
+         * Update a listing
+         * @description Edits the caller's own listing. Requires authentication and ownership:
+         *     non-owners get 403, an unknown listing gets 404. `content_language` is
+         *     immutable, so title/description edits land on the listing's existing
+         *     authored-language translation.
+         *
+         */
+        put: operations["updateListing"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete a listing
+         * @description Removes the caller's own listing (soft delete; it leaves the catalog and
+         *     dashboard). Requires authentication and ownership: non-owners get 403, an
+         *     unknown listing gets 404.
+         *
+         */
+        delete: operations["deleteListing"];
         options?: never;
         head?: never;
         patch?: never;
@@ -291,6 +306,17 @@ export interface components {
             /** @description Optional asking price in LKR. Set by the seller, never by AI. */
             price_lkr?: number | null;
         };
+        /** @description Body for PUT /listings/{id}. Mirrors ListingCreate minus content_language,
+         *     which is immutable after creation — title/description edits apply to the
+         *     listing's existing authored-language translation.
+         *      */
+        ListingUpdate: {
+            category: components["schemas"]["CategorySlug"];
+            title: string;
+            description: string;
+            /** @description Optional asking price in LKR. Set by the seller, never by AI. */
+            price_lkr?: number | null;
+        };
         /** @description A published listing. Title/description are returned resolved to the
          *     requested language (with machine-translation fallback per ADR 0001).
          *      */
@@ -349,6 +375,15 @@ export interface components {
         };
         /** @description Authentication is required or failed. */
         Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Authenticated, but not permitted to act on this resource. */
+        Forbidden: {
             headers: {
                 [name: string]: unknown;
             };
@@ -624,6 +659,59 @@ export interface operations {
                     "application/json": components["schemas"]["Listing"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ListingUpdate"];
+            };
+        };
+        responses: {
+            /** @description Listing updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Listing"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteListing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Listing deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };

@@ -272,8 +272,7 @@ paths:
       tags: [listings]
       operationId: getListing
       summary: Get a single listing
-      x-status: stub
-      description: "**Stub** — finalized by the listings issue."
+      description: "Returns one listing with title/description resolved to the requested language (ADR 0001 fallback)."
       parameters:
         - name: id
           in: path
@@ -289,6 +288,71 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Listing"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [listings]
+      operationId: updateListing
+      summary: Update a listing
+      description: |
+        Edits the caller's own listing. Requires authentication and ownership:
+        non-owners get 403, an unknown listing gets 404. `content_language` is
+        immutable, so title/description edits land on the listing's existing
+        authored-language translation.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ListingUpdate"
+      responses:
+        "200":
+          description: Listing updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [listings]
+      operationId: deleteListing
+      summary: Delete a listing
+      description: |
+        Removes the caller's own listing (soft delete; it leaves the catalog and
+        dashboard). Requires authentication and ownership: non-owners get 403, an
+        unknown listing gets 404.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Listing deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -370,6 +434,12 @@ components:
             $ref: "#/components/schemas/Error"
     Unauthorized:
       description: Authentication is required or failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Authenticated, but not permitted to act on this resource.
       content:
         application/json:
           schema:
@@ -580,6 +650,25 @@ components:
         title:
           type: string
           description: Authored in the single content_language.
+        description:
+          type: string
+        price_lkr:
+          type: [integer, "null"]
+          description: Optional asking price in LKR. Set by the seller, never by AI.
+      additionalProperties: false
+
+    ListingUpdate:
+      type: object
+      description: |
+        Body for PUT /listings/{id}. Mirrors ListingCreate minus content_language,
+        which is immutable after creation — title/description edits apply to the
+        listing's existing authored-language translation.
+      required: [category, title, description]
+      properties:
+        category:
+          $ref: "#/components/schemas/CategorySlug"
+        title:
+          type: string
         description:
           type: string
         price_lkr:
