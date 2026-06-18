@@ -356,6 +356,142 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  "/listings/{id}/images:presign":
+    post:
+      tags: [listings]
+      operationId: presignListingImage
+      summary: Presign a listing image upload
+      description: |
+        Owner-only. Validates content-type, size, and the per-listing image cap,
+        then returns a short-lived presigned PUT URL the client uses to upload
+        the file bytes directly to object storage (no bytes through the API).
+        After the PUT succeeds, call `:confirm` to activate the image. Limits:
+        at most 8 images per listing; jpeg/png/webp; <= 8MB.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImagePresignRequest"
+      responses:
+        "201":
+          description: Presigned upload created with a pending image record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImagePresignResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          description: Image storage is not configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  "/listings/{id}/images:confirm":
+    post:
+      tags: [listings]
+      operationId: confirmListingImage
+      summary: Confirm a listing image upload
+      description: |
+        Owner-only. HEAD-verifies the uploaded object exists in storage, then
+        activates the pending image record so it is served in listing responses.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageConfirmRequest"
+      responses:
+        "200":
+          description: Image activated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingImage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "503":
+          description: Image storage is not configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  "/listings/{id}/images/{imageId}":
+    delete:
+      tags: [listings]
+      operationId: deleteListingImage
+      summary: Delete a listing image
+      description: |
+        Owner-only. Removes the image object from storage and its record. Used by
+        the edit flow.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Image deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          description: Image storage is not configured on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /search:
     get:
       tags: [search]
@@ -452,6 +588,18 @@ components:
             $ref: "#/components/schemas/Error"
     RateLimited:
       description: Too many requests; slow down.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The request conflicts with the current state (e.g. image limit reached).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    UnprocessableEntity:
+      description: The request was well-formed but could not be processed (e.g. the uploaded object was not found).
       content:
         application/json:
           schema:
@@ -700,9 +848,88 @@ components:
           type: [string, "null"]
           enum: [human, machine, null]
           description: Source of the returned localized text (ADR 0001).
+        images:
+          type: array
+          description: Active images for this listing, ordered by sort_order.
+          items:
+            $ref: "#/components/schemas/ListingImage"
+        primary_image_url:
+          type: [string, "null"]
+          format: uri
+          description: URL of the primary image (lowest sort_order), or null if none.
+        has_image:
+          type: boolean
+          description: Whether the listing has at least one active image.
         created_at:
           type: string
           format: date-time
+      additionalProperties: false
+
+    ListingImage:
+      type: object
+      description: An active listing image as served in listing responses.
+      required: [id, url, sort_order]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: Public-read URL of the image.
+        sort_order:
+          type: integer
+          description: Gallery order; 0 is the primary/thumbnail image.
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
+      additionalProperties: false
+
+    ImagePresignRequest:
+      type: object
+      required: [content_type, size_bytes]
+      properties:
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          description: Size of the file to upload in bytes (1 to 8388608).
+      additionalProperties: false
+
+    ImagePresignResponse:
+      type: object
+      required: [image_id, object_key, upload_url, expires_at]
+      properties:
+        image_id:
+          type: string
+          format: uuid
+          description: Pending image id; pass to :confirm after the PUT succeeds.
+        object_key:
+          type: string
+          description: Server-chosen storage key for the object.
+        upload_url:
+          type: string
+          format: uri
+          description: Short-lived presigned PUT URL for the direct upload.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the presigned URL expires.
+      additionalProperties: false
+
+    ImageConfirmRequest:
+      type: object
+      required: [image_id]
+      properties:
+        image_id:
+          type: string
+          format: uuid
+        width:
+          type: [integer, "null"]
+        height:
+          type: [integer, "null"]
       additionalProperties: false
 
     ListingSummary:
@@ -722,6 +949,9 @@ components:
           type: [string, "null"]
           format: uri
           description: URL of the listing's primary thumbnail image, or null if none.
+        has_image:
+          type: boolean
+          description: Whether the listing has at least one active image.
         created_at:
           type: string
           format: date-time

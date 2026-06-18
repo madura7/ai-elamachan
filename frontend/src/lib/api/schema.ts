@@ -166,6 +166,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listings/{id}/images:presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Presign a listing image upload
+         * @description Owner-only. Validates content-type, size, and the per-listing image cap,
+         *     then returns a short-lived presigned PUT URL the client uses to upload
+         *     the file bytes directly to object storage (no bytes through the API).
+         *     After the PUT succeeds, call `:confirm` to activate the image. Limits:
+         *     at most 8 images per listing; jpeg/png/webp; <= 8MB.
+         *
+         */
+        post: operations["presignListingImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listings/{id}/images:confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm a listing image upload
+         * @description Owner-only. HEAD-verifies the uploaded object exists in storage, then
+         *     activates the pending image record so it is served in listing responses.
+         *
+         */
+        post: operations["confirmListingImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listings/{id}/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a listing image
+         * @description Owner-only. Removes the image object from storage and its record. Used by
+         *     the edit flow.
+         *
+         */
+        delete: operations["deleteListingImage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -333,8 +402,62 @@ export interface components {
              * @enum {string|null}
              */
             translation_source?: "human" | "machine" | null;
+            /** @description Active images for this listing, ordered by sort_order. */
+            images?: components["schemas"]["ListingImage"][];
+            /**
+             * Format: uri
+             * @description URL of the primary image (lowest sort_order), or null if none.
+             */
+            primary_image_url?: string | null;
+            /** @description Whether the listing has at least one active image. */
+            has_image?: boolean;
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description An active listing image as served in listing responses. */
+        ListingImage: {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: uri
+             * @description Public-read URL of the image.
+             */
+            url: string;
+            /** @description Gallery order; 0 is the primary/thumbnail image. */
+            sort_order: number;
+            width?: number | null;
+            height?: number | null;
+        };
+        ImagePresignRequest: {
+            /** @enum {string} */
+            content_type: "image/jpeg" | "image/png" | "image/webp";
+            /** @description Size of the file to upload in bytes (1 to 8388608). */
+            size_bytes: number;
+        };
+        ImagePresignResponse: {
+            /**
+             * Format: uuid
+             * @description Pending image id; pass to :confirm after the PUT succeeds.
+             */
+            image_id: string;
+            /** @description Server-chosen storage key for the object. */
+            object_key: string;
+            /**
+             * Format: uri
+             * @description Short-lived presigned PUT URL for the direct upload.
+             */
+            upload_url: string;
+            /**
+             * Format: date-time
+             * @description When the presigned URL expires.
+             */
+            expires_at: string;
+        };
+        ImageConfirmRequest: {
+            /** Format: uuid */
+            image_id: string;
+            width?: number | null;
+            height?: number | null;
         };
         ListingSummary: {
             /** Format: uuid */
@@ -347,6 +470,8 @@ export interface components {
              * @description URL of the listing's primary thumbnail image, or null if none.
              */
             thumbnail_url?: string | null;
+            /** @description Whether the listing has at least one active image. */
+            has_image?: boolean;
             /** Format: date-time */
             created_at: string;
         };
@@ -402,6 +527,24 @@ export interface components {
         };
         /** @description Too many requests; slow down. */
         RateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The request conflicts with the current state (e.g. image limit reached). */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description The request was well-formed but could not be processed (e.g. the uploaded object was not found). */
+        UnprocessableEntity: {
             headers: {
                 [name: string]: unknown;
             };
@@ -713,6 +856,119 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    presignListingImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImagePresignRequest"];
+            };
+        };
+        responses: {
+            /** @description Presigned upload created with a pending image record. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImagePresignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Image storage is not configured on this server. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    confirmListingImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Image activated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListingImage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["UnprocessableEntity"];
+            /** @description Image storage is not configured on this server. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteListingImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Image storage is not configured on this server. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     searchListings: {

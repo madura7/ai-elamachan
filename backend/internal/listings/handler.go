@@ -14,6 +14,7 @@ import (
 
 	"github.com/madura7/ai-elamachan/backend/internal/apierr"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
+	"github.com/madura7/ai-elamachan/backend/internal/storage"
 
 	// pgx registers the "pgx" driver name with database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -30,6 +31,8 @@ type Handler struct {
 	policy      PostingPolicy
 	bearer      func(http.Handler) http.Handler
 	verifyToken func(ctx context.Context, token string) (string, error)
+	store       storage.BlobStore
+	maxBytes    int64
 }
 
 // NewHandlerFromEnv constructs a Handler from DATABASE_URL.
@@ -61,6 +64,13 @@ func (h *Handler) SetAuth(
 	h.verifyToken = verify
 }
 
+// SetStore wires the object-storage backend used by the image upload endpoints.
+// When nil (BLOB_* not configured), the image routes return 503.
+func (h *Handler) SetStore(store storage.BlobStore) {
+	h.store = store
+	h.maxBytes = storage.ParseSizeEnv(os.Getenv("BLOB_MAX_IMAGE_BYTES"), defaultMaxImageBytes)
+}
+
 // RegisterRoutes wires the listings and categories routes onto mux.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/listings", h.listListings)
@@ -78,6 +88,22 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/listings", post)
 	mux.Handle("PUT /api/v1/listings/{id}", put)
 	mux.Handle("DELETE /api/v1/listings/{id}", del)
+
+	// Image upload (VER-299): presign → direct PUT → confirm, plus delete.
+	// All owner-only and bearer-required; they return 503 when storage is
+	// unconfigured. The ":presign"/":confirm" action suffixes are literal
+	// path segments distinct from the "/images/{imageId}" delete route.
+	presign := http.Handler(http.HandlerFunc(h.presignImage))
+	confirm := http.Handler(http.HandlerFunc(h.confirmImage))
+	delImg := http.Handler(http.HandlerFunc(h.deleteImage))
+	if h.bearer != nil {
+		presign = h.bearer(presign)
+		confirm = h.bearer(confirm)
+		delImg = h.bearer(delImg)
+	}
+	mux.Handle("POST /api/v1/listings/{id}/images:presign", presign)
+	mux.Handle("POST /api/v1/listings/{id}/images:confirm", confirm)
+	mux.Handle("DELETE /api/v1/listings/{id}/images/{imageId}", delImg)
 }
 
 // listListings serves GET /api/v1/listings with optional lang, category,
@@ -169,6 +195,11 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		         ''
 		       ) AS title,
 		       l.price_cents,
+		       (SELECT url FROM listing_images
+		          WHERE listing_id = l.id AND status = 'active'
+		          ORDER BY sort_order LIMIT 1) AS thumbnail_url,
+		       EXISTS(SELECT 1 FROM listing_images
+		          WHERE listing_id = l.id AND status = 'active') AS has_image,
 		       l.created_at
 		FROM listings l
 		JOIN categories c ON c.id = l.category_id
@@ -186,7 +217,8 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		dataArgs = append(dataArgs, category)
 		argIdx++
 	}
-	dataQuery += fmt.Sprintf(" ORDER BY l.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	// De-rank photoless listings: images first, then newest (VER-299).
+	dataQuery += fmt.Sprintf(" ORDER BY has_image DESC, l.created_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	dataArgs = append(dataArgs, pageSize, offset)
 
 	rows, err := h.db.QueryContext(r.Context(), dataQuery, dataArgs...)
@@ -201,7 +233,8 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s Summary
 		var priceCents sql.NullInt64
-		if err := rows.Scan(&s.ID, &s.Category, &s.Title, &priceCents, &s.CreatedAt); err != nil {
+		var thumbnailURL sql.NullString
+		if err := rows.Scan(&s.ID, &s.Category, &s.Title, &priceCents, &thumbnailURL, &s.HasImage, &s.CreatedAt); err != nil {
 			log.Printf("listings: scan row: %v", err)
 			apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not read listing")
 			return
@@ -209,6 +242,10 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		if priceCents.Valid {
 			lkr := priceCents.Int64 / 100
 			s.PriceLKR = &lkr
+		}
+		if thumbnailURL.Valid && thumbnailURL.String != "" {
+			url := thumbnailURL.String
+			s.ThumbnailURL = &url
 		}
 		items = append(items, s)
 	}
@@ -291,6 +328,19 @@ func (h *Handler) getListing(w http.ResponseWriter, r *http.Request) {
 	}
 	if translationSource.Valid {
 		d.TranslationSource = &translationSource.String
+	}
+
+	images, err := h.loadImages(r.Context(), d.ID)
+	if err != nil {
+		log.Printf("listings: load images: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not load listing images")
+		return
+	}
+	d.Images = images
+	d.HasImage = len(images) > 0
+	if d.HasImage {
+		primary := images[0].URL
+		d.PrimaryImageURL = &primary
 	}
 
 	writeJSON(w, http.StatusOK, d)

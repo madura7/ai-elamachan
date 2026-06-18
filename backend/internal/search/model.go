@@ -16,6 +16,7 @@ type Document struct {
 	ContentLanguage string  `json:"content_language,omitempty"` // service-indexed
 	PriceLKR        *int64  `json:"price_lkr,omitempty"`        // service-indexed
 	ThumbnailURL    *string `json:"thumbnail_url,omitempty"`
+	HasImage        bool    `json:"has_image,omitempty"` // de-rank signal (VER-299); sortable
 	CreatedAt       string  `json:"created_at,omitempty"`    // RFC3339 (UTC)
 	CreatedAtTS     int64   `json:"created_at_ts,omitempty"` // unix seconds, sortable
 
@@ -86,6 +87,7 @@ type Summary struct {
 	Title        string    `json:"title"`
 	PriceLKR     *int64    `json:"price_lkr"`
 	ThumbnailURL *string   `json:"thumbnail_url"`
+	HasImage     bool      `json:"has_image"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

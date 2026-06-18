@@ -14,6 +14,7 @@ import (
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
 	"github.com/madura7/ai-elamachan/backend/internal/middleware"
 	"github.com/madura7/ai-elamachan/backend/internal/search"
+	"github.com/madura7/ai-elamachan/backend/internal/storage"
 )
 
 func main() {
@@ -61,6 +62,14 @@ func main() {
 	} else {
 		if bearer != nil {
 			h.SetAuth(bearer, verifyToken)
+		}
+		// Object storage for listing images (VER-299). When BLOB_* is unset the
+		// store is nil and the image endpoints return 503 — the service still
+		// boots before storage is provisioned (same pattern as auth/search).
+		if store, serr := storage.NewFromEnv(); serr != nil {
+			log.Printf("listings: image storage disabled: %v", serr)
+		} else if store != nil {
+			h.SetStore(store)
 		}
 		h.RegisterRoutes(mux)
 	}

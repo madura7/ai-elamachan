@@ -87,6 +87,7 @@ func (s *Service) Search(_ context.Context, p Params) (*Result, error) {
 			Title:        doc.titleFor(p.Lang),
 			PriceLKR:     doc.priceLKR(),
 			ThumbnailURL: doc.ThumbnailURL,
+			HasImage:     doc.HasImage,
 			CreatedAt:    doc.createdAtTime(),
 		})
 	}

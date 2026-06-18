@@ -37,11 +37,23 @@ var ValidCategories = map[string]bool{
 // Summary is the slim listing representation returned by GET /api/v1/listings.
 // Matches the OpenAPI ListingSummary schema.
 type Summary struct {
-	ID        string    `json:"id"`
-	Category  string    `json:"category"`
-	Title     string    `json:"title"`
-	PriceLKR  *int64    `json:"price_lkr"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Category     string    `json:"category"`
+	Title        string    `json:"title"`
+	PriceLKR     *int64    `json:"price_lkr"`
+	ThumbnailURL *string   `json:"thumbnail_url"`
+	HasImage     bool      `json:"has_image"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Image is an active listing image as served in listing responses.
+// Matches the OpenAPI ListingImage schema.
+type Image struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	SortOrder int    `json:"sort_order"`
+	Width     *int   `json:"width"`
+	Height    *int   `json:"height"`
 }
 
 // Detail is the full listing representation returned by GET /api/v1/listings/{id}.
@@ -54,6 +66,9 @@ type Detail struct {
 	Description       string    `json:"description"`
 	PriceLKR          *int64    `json:"price_lkr"`
 	TranslationSource *string   `json:"translation_source,omitempty"`
+	Images            []Image   `json:"images"`
+	PrimaryImageURL   *string   `json:"primary_image_url"`
+	HasImage          bool      `json:"has_image"`
 	CreatedAt         time.Time `json:"created_at"`
 }
 
