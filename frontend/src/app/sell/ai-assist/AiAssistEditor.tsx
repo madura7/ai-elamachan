@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Locale } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
 import Button from "@/components/Button";
@@ -17,6 +18,9 @@ import {
   isWithinSizeLimit,
   resizeImage,
 } from "@/lib/image";
+import { getToken } from "@/lib/auth";
+import { createListing, ApiHttpError } from "@/lib/api/helpers";
+import type { CategorySlug } from "@/lib/api/client";
 
 type Status = "idle" | "resizing" | "streaming" | "done" | "error";
 
@@ -32,6 +36,7 @@ interface Props {
 }
 
 export function AiAssistEditor({ locale }: Props) {
+  const router = useRouter();
   const [keywords, setKeywords] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -41,6 +46,9 @@ export function AiAssistEditor({ locale }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [draft, setDraft] = useState<ListingDraft>(emptyDraft);
   const [hasDraft, setHasDraft] = useState(false);
+  const [price, setPrice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -97,6 +105,44 @@ export function AiAssistEditor({ locale }: Props) {
     abortRef.current = null;
     setStatus((s) => (s === "streaming" || s === "resizing" ? "idle" : s));
   }, []);
+
+  const handleSubmit = useCallback(async () => {
+    setSubmitError(null);
+    const token = getToken();
+    if (!token) {
+      router.push("/auth");
+      return;
+    }
+    const priceParsed = price.trim() ? parseFloat(price) : undefined;
+    setSubmitting(true);
+    try {
+      await createListing(
+        {
+          category: draft.category_suggestion as CategorySlug,
+          content_language: locale as Lang,
+          title: draft.title[locale as Lang],
+          description: draft.description[locale as Lang],
+          ...(priceParsed !== undefined && !isNaN(priceParsed)
+            ? { price_lkr: priceParsed }
+            : {}),
+        },
+        token
+      );
+      router.push("/dashboard");
+    } catch (err) {
+      if (err instanceof ApiHttpError && err.status === 401) {
+        router.push("/auth");
+        return;
+      }
+      if (err instanceof ApiHttpError && err.status === 403) {
+        setSubmitError(t(locale, "errorPostingLimit"));
+      } else {
+        setSubmitError(t(locale, "submitListingError"));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }, [draft, locale, price, router]);
 
   const generate = useCallback(async () => {
     setFormError(null);
@@ -163,7 +209,8 @@ export function AiAssistEditor({ locale }: Props) {
     }
   }, [keywords, photo, locale]);
 
-  const busy = status === "resizing" || status === "streaming";
+  const generating = status === "resizing" || status === "streaming";
+  const busy = generating || submitting;
 
   return (
     <div className="editor space-y-4">
@@ -226,7 +273,7 @@ export function AiAssistEditor({ locale }: Props) {
           >
             {hasDraft ? t(locale, "regenerate") : t(locale, "generate")}
           </Button>
-          {busy && (
+          {generating && (
             <button
               type="button"
               onClick={cancel}
@@ -336,13 +383,32 @@ export function AiAssistEditor({ locale }: Props) {
           </fieldset>
 
           <div>
+            <label htmlFor="price" className="text-caption font-medium text-muted block mb-1">
+              {t(locale, "priceLKR")}
+            </label>
+            <input
+              id="price"
+              type="number"
+              min={0}
+              step={1}
+              value={price}
+              placeholder={t(locale, "pricePlaceholder")}
+              onChange={(e) => setPrice(e.target.value)}
+              disabled={busy}
+              className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
+
+          {submitError && <p className="text-xs text-red-500">{submitError}</p>}
+
+          <div>
             <Button
               type="button"
               variant="primary"
-              disabled={status === "streaming"}
-              onClick={() => window.alert(t(locale, "createListingNotWired"))}
+              disabled={busy}
+              onClick={handleSubmit}
             >
-              {t(locale, "createListing")}
+              {submitting ? t(locale, "submittingListing") : t(locale, "createListing")}
             </Button>
             <p className="text-caption text-muted mt-1">{t(locale, "createListingHint")}</p>
           </div>

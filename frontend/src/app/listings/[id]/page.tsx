@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api/client";
-import type { Listing } from "@/lib/api/client";
+import { getListing } from "@/lib/api/helpers";
+import type { ListingWithImages } from "@/lib/api/helpers";
 import { categoryMeta, formatPrice } from "@/lib/categories";
 import { isAuthenticated, getToken } from "@/lib/auth";
 import Button from "@/components/Button";
@@ -15,7 +15,8 @@ export default function ListingDetailPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  const [listing, setListing] = useState<Listing | null>(null);
+  const [listing, setListing] = useState<ListingWithImages | null>(null);
+  const [galleryIdx, setGalleryIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showInquiry, setShowInquiry] = useState(false);
@@ -24,16 +25,9 @@ export default function ListingDetailPage() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    api
-      .GET("/listings/{id}", { params: { path: { id } } })
-      .then(({ data, error: apiErr }) => {
-        if (apiErr || !data) {
-          setError("Listing not found");
-        } else {
-          setListing(data);
-        }
-      })
-      .catch(() => setError("Failed to load listing"))
+    getListing(id)
+      .then((data) => setListing(data))
+      .catch(() => setError("Listing not found"))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -93,11 +87,38 @@ export default function ListingDetailPage() {
       <div className="grid grid-cols-1 items-start gap-8 md:grid-cols-[1.25fr_1fr]">
         {/* Gallery + description */}
         <div>
+          {/* Cover image or category placeholder */}
           <div
-            className={`grid aspect-[4/3] place-items-center rounded-md border border-border text-[120px] ${cat.tint}`}
+            className={`relative grid aspect-[4/3] place-items-center overflow-hidden rounded-md border border-border text-[120px] ${cat.tint}`}
           >
-            <span aria-hidden>{cat.icon}</span>
+            {listing.images && listing.images.length > 0 ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={listing.images[galleryIdx]?.url ?? listing.images[0].url}
+                alt={listing.title}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <span aria-hidden>{cat.icon}</span>
+            )}
           </div>
+          {/* Thumbnail strip */}
+          {listing.images && listing.images.length > 1 && (
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+              {listing.images.map((img, i) => (
+                <button
+                  key={img.id}
+                  onClick={() => setGalleryIdx(i)}
+                  className={`flex-shrink-0 h-16 w-16 rounded-md border-2 overflow-hidden transition-colors ${i === galleryIdx ? "border-accent" : "border-transparent"}`}
+                  aria-label={`Image ${i + 1}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={img.url} alt="" className="h-full w-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
 
           {listing.description && (
             <div className="panel desc mt-6">
@@ -141,9 +162,6 @@ export default function ListingDetailPage() {
                   💬 Message seller
                 </Button>
               )}
-              <Button href="/auth" variant="secondary" block>
-                💰 Make an offer
-              </Button>
             </div>
           </div>
 

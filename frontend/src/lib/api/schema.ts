@@ -216,6 +216,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/inquiries/{inquiryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get full inquiry thread (header + messages)
+         * @description Returns the full conversation thread for an inquiry. Participant-only
+         *     (buyer or seller). When the seller opens a `new` inquiry the status
+         *     transitions to `read`; it is never downgraded from `replied`.
+         *
+         */
+        get: operations["getInquiryThread"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inquiries/{inquiryId}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply in an inquiry thread
+         * @description Adds a new message to an inquiry thread. Participant-only; `sender_role`
+         *     is derived from the authenticated user. A seller reply transitions the
+         *     inquiry status to `replied`. Rate limited: 5/min + 60/hr per user.
+         *
+         */
+        post: operations["postInquiryMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inquiries/{inquiryId}/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report an inquiry for abuse
+         * @description Submits an abuse report for an inquiry. Participant-only. Returns 204
+         *     on success. Rate limited: 5/min + 60/hr per user.
+         *
+         */
+        post: operations["reportInquiry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -370,6 +438,14 @@ export interface components {
         /** @description A published listing. Title/description are returned resolved to the
          *     requested language (with machine-translation fallback per ADR 0001).
          *      */
+        /** @description One image attached to a listing. */
+        ListingImage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uri */
+            url: string;
+            sort_order: number;
+        };
         Listing: {
             /** Format: uuid */
             id: string;
@@ -383,6 +459,13 @@ export interface components {
              * @enum {string|null}
              */
             translation_source?: "human" | "machine" | null;
+            /**
+             * Format: uri
+             * @description URL of the listing's primary thumbnail image, or null if none.
+             */
+            thumbnail_url?: string | null;
+            /** @description All active images for this listing, ordered by sort_order. */
+            images?: components["schemas"]["ListingImage"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -448,6 +531,46 @@ export interface components {
             status: "new" | "read" | "replied";
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description A single message turn in an inquiry thread (buyer or seller). */
+        InquiryMessage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            inquiry_id: string;
+            /** @enum {string} */
+            sender_role: "buyer" | "seller";
+            body: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Full thread for an inquiry: header fields (same as SellerInquiry) plus
+         *     the ordered list of messages. Returned by GET /inquiries/{inquiryId}.
+         *      */
+        InquiryThread: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            listing_id: string;
+            listing_title: string;
+            /** @description Buyer display name if known, else a stable pseudonym. */
+            buyer_label: string;
+            /** @enum {string} */
+            status: "new" | "read" | "replied";
+            /** Format: date-time */
+            created_at: string;
+            /** @description Messages in chronological order (oldest first). */
+            messages: components["schemas"]["InquiryMessage"][];
+        };
+        /** @description Request body for POST /inquiries/{inquiryId}/messages. */
+        MessageCreate: {
+            /** @description The reply text (1–1000 chars, non-blank). */
+            body: string;
+        };
+        /** @description Request body for POST /inquiries/{inquiryId}/report. */
+        InquiryReportCreate: {
+            /** @description Short description of the reported content (≤500 chars). */
+            reason: string;
         };
     };
     responses: {
@@ -861,6 +984,107 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getInquiryThread: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inquiryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Thread with messages oldest-first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryThread"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    postInquiryMessage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inquiryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageCreate"];
+            };
+        };
+        responses: {
+            /** @description Message created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InquiryMessage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Validation failed (blank body or body too long). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    reportInquiry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inquiryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InquiryReportCreate"];
+            };
+        };
+        responses: {
+            /** @description Report recorded. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Validation failed (blank or too-long reason). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["RateLimited"];
         };
     };
     searchListings: {

@@ -6,6 +6,25 @@
 import { api, API_BASE_URL } from "./client";
 import type { components } from "./schema";
 
+export type ImageRecord = {
+  id: string;
+  url: string;
+  sort_order: number;
+};
+
+// Listing extended with image fields (VER-368) — not yet in OpenAPI contract.
+export type ListingWithImages = components["schemas"]["Listing"] & {
+  images: ImageRecord[];
+  thumbnail_url?: string | null;
+};
+
+export class ApiHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiHttpError";
+  }
+}
+
 export type ListingSummary = components["schemas"]["ListingSummary"];
 export type ListingPage = components["schemas"]["ListingPage"];
 export type Listing = components["schemas"]["Listing"];
@@ -50,7 +69,7 @@ async function authorizedFetch<T>(
     } catch {
       // ignore parse error
     }
-    throw new Error(message);
+    throw new ApiHttpError(res.status, message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -78,6 +97,16 @@ export function updateListing(
   });
 }
 
+export function getListing(id: string): Promise<ListingWithImages> {
+  return fetch(`${API_BASE_URL}/listings/${id}`).then(async (res) => {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<ListingWithImages>;
+  });
+}
+
 export function deleteListing(id: string, token: string): Promise<void> {
   return authorizedFetch<void>(`/listings/${id}`, token, { method: "DELETE" });
 }
@@ -100,17 +129,120 @@ export function listSellerInquiries(
   return authorizedFetch(`/inquiries`, token);
 }
 
-export function uploadListingImage(
+export function getInquiryThread(
+  inquiryId: string,
+  token: string
+): Promise<components["schemas"]["InquiryThread"]> {
+  return authorizedFetch(`/inquiries/${inquiryId}`, token);
+}
+
+export function replyToInquiry(
+  inquiryId: string,
+  body: string,
+  token: string
+): Promise<components["schemas"]["InquiryMessage"]> {
+  return authorizedFetch(`/inquiries/${inquiryId}/messages`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function reportInquiry(
+  inquiryId: string,
+  reason: string,
+  token: string
+): Promise<void> {
+  return authorizedFetch(`/inquiries/${inquiryId}/report`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function createListing(
+  body: components["schemas"]["ListingCreate"],
+  token: string
+): Promise<Listing> {
+  return authorizedFetch<Listing>("/listings", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export const MAX_LISTING_IMAGES = 8;
+export const MAX_LISTING_IMAGE_BYTES = 8 * 1024 * 1024;
+export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+type PresignResponse = {
+  image_id: string;
+  object_key: string;
+  upload_url: string;
+  expires_at: string;
+};
+
+export function presignListingImage(
+  listingId: string,
+  contentType: string,
+  sizeBytes: number,
+  token: string
+): Promise<PresignResponse> {
+  return authorizedFetch<PresignResponse>(
+    `/listings/${listingId}/images:presign`,
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content_type: contentType, size_bytes: sizeBytes }),
+    }
+  );
+}
+
+export function confirmListingImage(
+  listingId: string,
+  imageId: string,
+  sortOrder: number,
+  token: string
+): Promise<ImageRecord> {
+  return authorizedFetch<ImageRecord>(
+    `/listings/${listingId}/images:confirm`,
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image_id: imageId, sort_order: sortOrder }),
+    }
+  );
+}
+
+export function deleteListingImage(
+  listingId: string,
+  imageId: string,
+  token: string
+): Promise<void> {
+  return authorizedFetch<void>(`/listings/${listingId}/images/${imageId}`, token, {
+    method: "DELETE",
+  });
+}
+
+// uploadListingImageFile orchestrates the presign → PUT → confirm flow for one file.
+export async function uploadListingImageFile(
   listingId: string,
   file: File,
+  sortOrder: number,
   token: string
-): Promise<{ id: string; url: string; sort_order: number }> {
-  const form = new FormData();
-  form.append("image", file);
-  return authorizedFetch(`/listings/${listingId}/images`, token, {
-    method: "POST",
-    body: form,
+): Promise<ImageRecord> {
+  const presign = await presignListingImage(listingId, file.type, file.size, token);
+  const putRes = await fetch(presign.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
   });
+  if (!putRes.ok) {
+    throw new ApiHttpError(putRes.status, `Upload PUT failed: HTTP ${putRes.status}`);
+  }
+  return confirmListingImage(listingId, presign.image_id, sortOrder, token);
 }
 
 export function getAIDraft(
