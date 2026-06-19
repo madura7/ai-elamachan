@@ -13,7 +13,8 @@ import (
 // indexSettings is the authoritative Meilisearch settings for the listings index.
 // Applied idempotently at startup and by the backfill command.
 var indexSettings = &meilisearch.Settings{
-	SortableAttributes: []string{"has_image", "created_at"},
+	SortableAttributes:   []string{"has_image", "created_at"},
+	FilterableAttributes: []string{"category_slug"},
 	RankingRules: []string{
 		"words",
 		"typo",
