@@ -1,23 +1,15 @@
-// Typed wrappers for API endpoints not yet in the OpenAPI contract.
-// All request/response shapes use schema-derived types — no hand-written
-// interfaces allowed. When these endpoints are added to openapi.yaml, delete
-// the corresponding helper and switch callers to `api.*` directly.
+// Typed wrappers for API helpers. Schema-derived types from openapi.yaml are
+// preferred; hand-written shapes live here only for endpoints / fields not yet
+// covered by the generated schema.
 
 import { upload } from "@vercel/blob/client";
 import { api, API_BASE_URL } from "./client";
 import type { components } from "./schema";
 
-export type ImageRecord = {
-  id: string;
-  url: string;
-  sort_order: number;
-};
+export type ImageRecord = components["schemas"]["ImageRecord"];
 
-// Listing extended with image fields (VER-368) — not yet in OpenAPI contract.
-export type ListingWithImages = components["schemas"]["Listing"] & {
-  images: ImageRecord[];
-  thumbnail_url?: string | null;
-};
+// Listing with images — now fully covered by the OpenAPI Listing schema.
+export type ListingWithImages = components["schemas"]["Listing"];
 
 export class ApiHttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -37,18 +29,10 @@ export type UpdateListingBody = Omit<
   "content_language"
 >;
 
-// ListingSummary extended with thumbnail_url which the backend includes in my-listings
-// responses but which is not yet in the OpenAPI contract.
-export type ListingSummaryWithThumb = ListingSummary & {
-  thumbnail_url?: string | null;
-};
+// thumbnail_url is now part of the OpenAPI ListingSummary schema.
+export type ListingSummaryWithThumb = ListingSummary;
 
-export interface ListingPageWithThumb {
-  items: ListingSummaryWithThumb[];
-  page: number;
-  pageSize: number;
-  total: number;
-}
+export type ListingPageWithThumb = components["schemas"]["ListingPage"];
 
 async function authorizedFetch<T>(
   path: string,

@@ -39,6 +39,8 @@ tags:
     description: Phone + OTP authentication (ADR 0002). Stub.
   - name: listings
     description: Classified listings CRUD. Stub.
+  - name: images
+    description: Listing image attachments (Vercel Blob). VER-376.
   - name: categories
     description: Localized category taxonomy (ADR 0001). Stub.
   - name: search
@@ -351,6 +353,107 @@ paths:
       responses:
         "204":
           description: Listing deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /listings/{id}/images:
+    post:
+      tags: [images]
+      operationId: attachListingImage
+      summary: Attach a Vercel Blob image to a listing
+      description: |
+        Persists a Vercel Blob URL as an active image on the listing. The
+        browser uploads the file directly to Vercel Blob (via the Next.js
+        `POST /api/blob/upload` handler) and then calls this endpoint to
+        record the resulting public URL.
+
+        Requires authentication and listing ownership. Returns 422 when the
+        listing already has 8 images (the per-listing cap). The Blob object
+        is **not** deleted when an image is later detached — only the
+        database reference is removed (the write token lives only in the
+        frontend environment).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImageAttachRequest"
+      responses:
+        "200":
+          description: Image attached; returns the persisted record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageRecord"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: size_bytes exceeds the 8 MiB per-image limit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: content_type is not an accepted image MIME type.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Listing already has the maximum 8 images.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /listings/{id}/images/{imageId}:
+    delete:
+      tags: [images]
+      operationId: deleteListingImage
+      summary: Remove an image from a listing
+      description: |
+        Removes the database record for an image attached to the listing.
+        The Blob object itself is **not** deleted from Vercel Blob storage.
+
+        Requires authentication and listing ownership. Returns 404 when the
+        image does not exist or does not belong to the given listing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: imageId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Image removed.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -755,12 +858,61 @@ components:
           description: Optional asking price in LKR. Set by the seller, never by AI.
       additionalProperties: false
 
+    ImageRecord:
+      type: object
+      description: One image attached to a listing, stored in Vercel Blob.
+      required: [id, url, sort_order]
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+          description: Public Vercel Blob URL of the image.
+        sort_order:
+          type: integer
+          description: Display order; lower values sort first.
+      additionalProperties: false
+
+    ImageAttachRequest:
+      type: object
+      description: |
+        Body for POST /listings/{id}/images. The browser uploads the file
+        directly to Vercel Blob (via the Next.js `/api/blob/upload` handler)
+        and posts the resulting public URL here for persistence.
+      required: [url, content_type, size_bytes]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Public Vercel Blob URL returned by the client-side upload.
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+          description: MIME type of the uploaded image.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 8388608
+          description: File size in bytes (1 B to 8 MiB).
+        sort_order:
+          type: integer
+          description: |
+            Optional display-order hint. Defaults to the current image count
+            (i.e. the new image is appended last).
+      additionalProperties: false
+
     Listing:
       type: object
       description: |
         A published listing. Title/description are returned resolved to the
         requested language (with machine-translation fallback per ADR 0001).
-      required: [id, category, content_language, title, description, created_at]
+        The `images` array is always present (empty when no images exist);
+        `thumbnail_url` is the URL of the first image (sort_order = 0) or
+        omitted when `images` is empty.
+      required: [id, category, content_language, title, description, created_at, images]
       properties:
         id:
           type: string
@@ -779,6 +931,15 @@ components:
           type: [string, "null"]
           enum: [human, machine, null]
           description: Source of the returned localized text (ADR 0001).
+        thumbnail_url:
+          type: [string, "null"]
+          format: uri
+          description: URL of the primary (lowest sort_order) image, or null when no images.
+        images:
+          type: array
+          description: All active images for this listing, ordered by sort_order ascending.
+          items:
+            $ref: "#/components/schemas/ImageRecord"
         created_at:
           type: string
           format: date-time

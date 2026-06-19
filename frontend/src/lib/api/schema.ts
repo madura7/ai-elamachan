@@ -166,6 +166,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/listings/{id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach a Vercel Blob image to a listing
+         * @description Persists a Vercel Blob URL as an active image on the listing. The
+         *     browser uploads the file directly to Vercel Blob (via the Next.js
+         *     `POST /api/blob/upload` handler) and then calls this endpoint to
+         *     record the resulting public URL.
+         *
+         *     Requires authentication and listing ownership. Returns 422 when the
+         *     listing already has 8 images (the per-listing cap). The Blob object
+         *     is **not** deleted when an image is later detached — only the
+         *     database reference is removed (the write token lives only in the
+         *     frontend environment).
+         *
+         */
+        post: operations["attachListingImage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/listings/{id}/images/{imageId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an image from a listing
+         * @description Removes the database record for an image attached to the listing.
+         *     The Blob object itself is **not** deleted from Vercel Blob storage.
+         *
+         *     Requires authentication and listing ownership. Returns 404 when the
+         *     image does not exist or does not belong to the given listing.
+         *
+         */
+        delete: operations["deleteListingImage"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/listings/{listingId}/inquiries": {
         parameters: {
             query?: never;
@@ -367,17 +422,49 @@ export interface components {
             /** @description Optional asking price in LKR. Set by the seller, never by AI. */
             price_lkr?: number | null;
         };
-        /** @description A published listing. Title/description are returned resolved to the
-         *     requested language (with machine-translation fallback per ADR 0001).
-         *      */
-        /** @description One image attached to a listing. */
-        ListingImage: {
+        /** @description One image attached to a listing, stored in Vercel Blob. */
+        ImageRecord: {
             /** Format: uuid */
             id: string;
-            /** Format: uri */
+            /**
+             * Format: uri
+             * @description Public Vercel Blob URL of the image.
+             */
             url: string;
+            /** @description Display order; lower values sort first. */
             sort_order: number;
         };
+        /** @description Body for POST /listings/{id}/images. The browser uploads the file
+         *     directly to Vercel Blob (via the Next.js `/api/blob/upload` handler)
+         *     and posts the resulting public URL here for persistence.
+         *      */
+        ImageAttachRequest: {
+            /**
+             * Format: uri
+             * @description Public Vercel Blob URL returned by the client-side upload.
+             */
+            url: string;
+            /**
+             * @description MIME type of the uploaded image.
+             * @enum {string}
+             */
+            content_type: "image/jpeg" | "image/png" | "image/webp";
+            /**
+             * Format: int64
+             * @description File size in bytes (1 B to 8 MiB).
+             */
+            size_bytes: number;
+            /** @description Optional display-order hint. Defaults to the current image count
+             *     (i.e. the new image is appended last).
+             *      */
+            sort_order?: number;
+        };
+        /** @description A published listing. Title/description are returned resolved to the
+         *     requested language (with machine-translation fallback per ADR 0001).
+         *     The `images` array is always present (empty when no images exist);
+         *     `thumbnail_url` is the URL of the first image (sort_order = 0) or
+         *     omitted when `images` is empty.
+         *      */
         Listing: {
             /** Format: uuid */
             id: string;
@@ -393,11 +480,11 @@ export interface components {
             translation_source?: "human" | "machine" | null;
             /**
              * Format: uri
-             * @description URL of the listing's primary thumbnail image, or null if none.
+             * @description URL of the primary (lowest sort_order) image, or null when no images.
              */
             thumbnail_url?: string | null;
-            /** @description All active images for this listing, ordered by sort_order. */
-            images?: components["schemas"]["ListingImage"][];
+            /** @description All active images for this listing, ordered by sort_order ascending. */
+            images: components["schemas"]["ImageRecord"][];
             /** Format: date-time */
             created_at: string;
         };
@@ -806,6 +893,87 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Listing deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    attachListingImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description Image attached; returns the persisted record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageRecord"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description size_bytes exceeds the 8 MiB per-image limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description content_type is not an accepted image MIME type. */
+            415: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Listing already has the maximum 8 images. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteListingImage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                imageId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Image removed. */
             204: {
                 headers: {
                     [name: string]: unknown;
