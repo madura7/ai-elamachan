@@ -18,11 +18,20 @@ import {
   isWithinSizeLimit,
   resizeImage,
 } from "@/lib/image";
-import { api } from "@/lib/api/client";
-import type { CategorySlug } from "@/lib/api/client";
 import { getToken } from "@/lib/auth";
+import {
+  createListing,
+  uploadListingImageFile,
+  ApiHttpError,
+  ALLOWED_IMAGE_TYPES,
+  MAX_LISTING_IMAGE_BYTES,
+  MAX_LISTING_IMAGES,
+  type ImageRecord,
+} from "@/lib/api/helpers";
+import type { CategorySlug } from "@/lib/api/client";
 
 type Status = "idle" | "resizing" | "streaming" | "done" | "error";
+type UploadStatus = "idle" | "uploading" | "done" | "unavailable";
 
 const LANG_LABEL_KEY: Record<Lang, "languageEn" | "languageSi" | "languageTa"> =
   {
@@ -46,10 +55,15 @@ export function AiAssistEditor({ locale }: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [draft, setDraft] = useState<ListingDraft>(emptyDraft);
   const [hasDraft, setHasDraft] = useState(false);
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [policyDenied, setPolicyDenied] = useState<string | null>(null);
+  const [price, setPrice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [createdListingId, setCreatedListingId] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const [uploadedImages, setUploadedImages] = useState<ImageRecord[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -99,16 +113,111 @@ export function AiAssistEditor({ locale }: Props) {
   const updateTitle = (lang: Lang, value: string) =>
     setDraft((d) => ({ ...d, title: { ...d.title, [lang]: value } }));
   const updateDescription = (lang: Lang, value: string) =>
-    setDraft((d) => ({
-      ...d,
-      description: { ...d.description, [lang]: value },
-    }));
+    setDraft((d) => ({ ...d, description: { ...d.description, [lang]: value } }));
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     setStatus((s) => (s === "streaming" || s === "resizing" ? "idle" : s));
   }, []);
+
+  const onImageFilesChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setImageError(null);
+      const selected = Array.from(e.target.files ?? []);
+      if (selected.length === 0) return;
+      for (const f of selected) {
+        if (!ALLOWED_IMAGE_TYPES.includes(f.type as typeof ALLOWED_IMAGE_TYPES[number])) {
+          setImageError(t(locale, "listingPhotoTypeBad"));
+          e.target.value = "";
+          return;
+        }
+        if (f.size > MAX_LISTING_IMAGE_BYTES) {
+          setImageError(t(locale, "listingPhotoTooBig"));
+          e.target.value = "";
+          return;
+        }
+      }
+      setImageFiles((prev) => {
+        const combined = [...prev, ...selected].slice(0, MAX_LISTING_IMAGES);
+        if (prev.length + selected.length > MAX_LISTING_IMAGES) {
+          setImageError(t(locale, "listingPhotoTooMany"));
+        }
+        return combined;
+      });
+      e.target.value = "";
+    },
+    [locale]
+  );
+
+  const removeImageFile = useCallback((idx: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const handleUploadImages = useCallback(async (listingId: string, token: string) => {
+    if (imageFiles.length === 0) {
+      router.push("/dashboard");
+      return;
+    }
+    setUploadStatus("uploading");
+    setUploadProgress({ done: 0, total: imageFiles.length });
+    const results: ImageRecord[] = [];
+    for (let i = 0; i < imageFiles.length; i++) {
+      try {
+        const img = await uploadListingImageFile(listingId, imageFiles[i], i, token);
+        results.push(img);
+      } catch (err) {
+        if (err instanceof ApiHttpError && err.status === 503) {
+          setUploadStatus("unavailable");
+          return;
+        }
+        // Non-fatal: log and continue
+        console.error(`Image ${i + 1} upload failed`, err);
+      }
+      setUploadProgress({ done: i + 1, total: imageFiles.length });
+    }
+    setUploadedImages(results);
+    setUploadStatus("done");
+  }, [imageFiles, router]);
+
+  const handleSubmit = useCallback(async () => {
+    setSubmitError(null);
+    const token = getToken();
+    if (!token) {
+      router.push("/auth");
+      return;
+    }
+    const priceParsed = price.trim() ? parseFloat(price) : undefined;
+    setSubmitting(true);
+    try {
+      const listing = await createListing(
+        {
+          category: draft.category_suggestion as CategorySlug,
+          content_language: locale as Lang,
+          title: draft.title[locale as Lang],
+          description: draft.description[locale as Lang],
+          ...(priceParsed !== undefined && !isNaN(priceParsed)
+            ? { price_lkr: priceParsed }
+            : {}),
+        },
+        token
+      );
+      setCreatedListingId(listing.id);
+      await handleUploadImages(listing.id, token);
+    } catch (err) {
+      if (err instanceof ApiHttpError && err.status === 401) {
+        router.push("/auth");
+        return;
+      }
+      if (err instanceof ApiHttpError && err.status === 403) {
+        setSubmitError(t(locale, "errorPostingLimit"));
+      } else {
+        setSubmitError(t(locale, "submitListingError"));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }, [draft, locale, price, router, handleUploadImages]);
 
   const generate = useCallback(async () => {
     setFormError(null);
@@ -154,10 +263,7 @@ export function AiAssistEditor({ locale }: Props) {
           onDescriptionDelta: (lang, delta) =>
             setDraft((d) => ({
               ...d,
-              description: {
-                ...d.description,
-                [lang]: d.description[lang] + delta,
-              },
+              description: { ...d.description, [lang]: d.description[lang] + delta },
             })),
           onDone: (full) => setDraft(full),
         },
@@ -178,63 +284,15 @@ export function AiAssistEditor({ locale }: Props) {
     }
   }, [keywords, photo, locale]);
 
-  const createListing = useCallback(async () => {
-    const token = getToken();
-    if (!token) {
-      router.push("/auth");
-      return;
-    }
-
-    setIsSubmitting(true);
-    setPolicyDenied(null);
-    setSubmitError(null);
-
-    try {
-      const { data, error, response } = await api.POST("/listings", {
-        headers: { Authorization: `Bearer ${token}` },
-        body: {
-          category: draft.category_suggestion as CategorySlug,
-          content_language: locale,
-          title: draft.title[locale],
-          description: draft.description[locale],
-        },
-      });
-
-      if (response.status === 401) {
-        router.push("/auth");
-        return;
-      }
-
-      if (response.status === 403) {
-        const denied = error as { message?: string } | undefined;
-        setPolicyDenied(denied?.message ?? t(locale, "createListingError"));
-        return;
-      }
-
-      if (data) {
-        router.push(`/listings/${data.id}`);
-        return;
-      }
-
-      setSubmitError(t(locale, "createListingError"));
-    } catch {
-      setSubmitError(t(locale, "createListingError"));
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [draft, locale, router]);
-
-  const busy = status === "resizing" || status === "streaming";
+  const generating = status === "resizing" || status === "streaming";
+  const busy = generating || submitting;
 
   return (
     <div className="editor space-y-4">
       {/* ---- Input form ---- */}
       <section className="panel p-5 space-y-4">
         <div>
-          <label
-            htmlFor="photo"
-            className="text-caption font-medium text-muted block mb-1"
-          >
+          <label htmlFor="photo" className="text-caption font-medium text-muted block mb-1">
             {t(locale, "photoLabel")}
           </label>
           <input
@@ -246,18 +304,11 @@ export function AiAssistEditor({ locale }: Props) {
             className="text-small text-ink-2"
           />
           <p className="text-caption text-muted mt-1">{t(locale, "photoHint")}</p>
-          {photoError && (
-            <p className="text-xs text-red-500 mt-1">{photoError}</p>
-          )}
+          {photoError && <p className="text-xs text-red-500 mt-1">{photoError}</p>}
           {photoPreview && (
             <div className="mt-2 flex items-center gap-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={photoPreview}
-                alt=""
-                width={80}
-                className="rounded-md object-cover"
-              />
+              <img src={photoPreview} alt="" width={80} className="rounded-md object-cover" />
               <button
                 type="button"
                 onClick={removePhoto}
@@ -271,10 +322,7 @@ export function AiAssistEditor({ locale }: Props) {
         </div>
 
         <div>
-          <label
-            htmlFor="keywords"
-            className="text-caption font-medium text-muted block mb-1"
-          >
+          <label htmlFor="keywords" className="text-caption font-medium text-muted block mb-1">
             {t(locale, "keywords")}
           </label>
           <textarea
@@ -286,9 +334,7 @@ export function AiAssistEditor({ locale }: Props) {
             disabled={busy}
             className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent resize-none"
           />
-          <p className="text-caption text-muted mt-1">
-            {t(locale, "keywordsHint")}
-          </p>
+          <p className="text-caption text-muted mt-1">{t(locale, "keywordsHint")}</p>
         </div>
 
         {formError && <p className="text-xs text-red-500">{formError}</p>}
@@ -302,7 +348,7 @@ export function AiAssistEditor({ locale }: Props) {
           >
             {hasDraft ? t(locale, "regenerate") : t(locale, "generate")}
           </Button>
-          {busy && (
+          {generating && (
             <button
               type="button"
               onClick={cancel}
@@ -332,36 +378,22 @@ export function AiAssistEditor({ locale }: Props) {
         >
           {status === "done" && (
             <div className="bg-green-50 border border-green-200 rounded-md p-3">
-              <strong className="text-small text-green-800">
-                {t(locale, "draftReadyTitle")}
-              </strong>
-              <p className="text-caption text-green-700 mt-0.5">
-                {t(locale, "draftReadyBody")}
-              </p>
+              <strong className="text-small text-green-800">{t(locale, "draftReadyTitle")}</strong>
+              <p className="text-caption text-green-700 mt-0.5">{t(locale, "draftReadyBody")}</p>
             </div>
           )}
 
           {draft.needs_human_review && (
-            <div
-              className="bg-yellow-50 border border-yellow-200 rounded-md p-3"
-              role="alert"
-            >
-              <strong className="text-small text-yellow-800">
-                {t(locale, "reviewNeeded")}
-              </strong>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3" role="alert">
+              <strong className="text-small text-yellow-800">{t(locale, "reviewNeeded")}</strong>
               {draft.review_note && (
-                <p className="text-caption text-yellow-700 mt-0.5">
-                  {draft.review_note}
-                </p>
+                <p className="text-caption text-yellow-700 mt-0.5">{draft.review_note}</p>
               )}
             </div>
           )}
 
           <div>
-            <label
-              htmlFor="category"
-              className="text-caption font-medium text-muted block mb-1"
-            >
+            <label htmlFor="category" className="text-caption font-medium text-muted block mb-1">
               {t(locale, "category")}
             </label>
             <input
@@ -378,15 +410,11 @@ export function AiAssistEditor({ locale }: Props) {
                 <option key={c} value={c} />
               ))}
             </datalist>
-            <p className="text-caption text-muted mt-1">
-              {t(locale, "categoryHint")}
-            </p>
+            <p className="text-caption text-muted mt-1">{t(locale, "categoryHint")}</p>
           </div>
 
           <fieldset className="space-y-2">
-            <legend className="text-caption font-medium text-muted">
-              {t(locale, "titleLabel")}
-            </legend>
+            <legend className="text-caption font-medium text-muted">{t(locale, "titleLabel")}</legend>
             {LOCALES.map((lang) => (
               <div key={`title-${lang}`}>
                 <label
@@ -407,9 +435,7 @@ export function AiAssistEditor({ locale }: Props) {
           </fieldset>
 
           <fieldset className="space-y-2">
-            <legend className="text-caption font-medium text-muted">
-              {t(locale, "descriptionLabel")}
-            </legend>
+            <legend className="text-caption font-medium text-muted">{t(locale, "descriptionLabel")}</legend>
             {LOCALES.map((lang) => (
               <div key={`desc-${lang}`}>
                 <label
@@ -432,31 +458,113 @@ export function AiAssistEditor({ locale }: Props) {
           </fieldset>
 
           <div>
-            {policyDenied && (
-              <div
-                className="bg-orange-50 border border-orange-200 rounded-md p-3 mb-3"
-                role="alert"
-              >
-                <p className="text-small text-orange-800">{policyDenied}</p>
-              </div>
-            )}
-            {submitError && (
-              <p className="text-xs text-red-500 mb-2">{submitError}</p>
-            )}
-            <Button
-              type="button"
-              variant="primary"
-              disabled={status === "streaming" || isSubmitting}
-              onClick={createListing}
-            >
-              {isSubmitting
-                ? t(locale, "posting")
-                : t(locale, "createListing")}
-            </Button>
-            <p className="text-caption text-muted mt-1">
-              {t(locale, "createListingHint")}
-            </p>
+            <label htmlFor="price" className="text-caption font-medium text-muted block mb-1">
+              {t(locale, "priceLKR")}
+            </label>
+            <input
+              id="price"
+              type="number"
+              min={0}
+              step={1}
+              value={price}
+              placeholder={t(locale, "pricePlaceholder")}
+              onChange={(e) => setPrice(e.target.value)}
+              disabled={busy}
+              className="w-full border border-border rounded-md px-3 py-2 text-small text-ink focus:outline-none focus:ring-2 focus:ring-accent"
+            />
           </div>
+
+          {/* Image picker — shown before submission */}
+          {!createdListingId && (
+            <div>
+              <label className="text-caption font-medium text-muted block mb-1">
+                {t(locale, "listingPhotos")}
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                disabled={busy}
+                onChange={onImageFilesChange}
+                className="text-small text-ink-2"
+              />
+              <p className="text-caption text-muted mt-1">{t(locale, "listingPhotosHint")}</p>
+              {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
+              {imageFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {imageFiles.map((f, i) => (
+                    <div key={i} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={URL.createObjectURL(f)}
+                        alt={f.name}
+                        className="h-16 w-16 object-cover rounded-md border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImageFile(i)}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-ink text-white rounded-full text-xs leading-none flex items-center justify-center hover:bg-red-600"
+                        aria-label={`Remove image ${i + 1}`}
+                        disabled={busy}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {submitError && <p className="text-xs text-red-500">{submitError}</p>}
+
+          {/* Upload progress UI — shown after listing is created */}
+          {createdListingId && uploadStatus === "uploading" && (
+            <div className="text-small text-muted">
+              {t(locale, "uploadingPhotos")} {uploadProgress.done}/{uploadProgress.total}
+            </div>
+          )}
+          {createdListingId && uploadStatus === "unavailable" && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+              <p className="text-small text-yellow-800">{t(locale, "imagesUnavailable")}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => router.push("/dashboard")}
+                className="mt-2"
+              >
+                {t(locale, "uploadPhotosSkip")}
+              </Button>
+            </div>
+          )}
+          {createdListingId && uploadStatus === "done" && (
+            <div className="space-y-2">
+              {uploadedImages.length > 0 && (
+                <p className="text-small text-green-700">{t(locale, "uploadPhotosSuccess")}</p>
+              )}
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => router.push("/dashboard")}
+              >
+                {t(locale, "uploadPhotosDone")}
+              </Button>
+            </div>
+          )}
+
+          {!createdListingId && (
+            <div>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={busy}
+                onClick={handleSubmit}
+              >
+                {submitting ? t(locale, "submittingListing") : t(locale, "createListing")}
+              </Button>
+              <p className="text-caption text-muted mt-1">{t(locale, "createListingHint")}</p>
+            </div>
+          )}
         </section>
       )}
     </div>

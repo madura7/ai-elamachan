@@ -3,8 +3,28 @@
 // interfaces allowed. When these endpoints are added to openapi.yaml, delete
 // the corresponding helper and switch callers to `api.*` directly.
 
+import { upload } from "@vercel/blob/client";
 import { api, API_BASE_URL } from "./client";
 import type { components } from "./schema";
+
+export type ImageRecord = {
+  id: string;
+  url: string;
+  sort_order: number;
+};
+
+// Listing extended with image fields (VER-368) — not yet in OpenAPI contract.
+export type ListingWithImages = components["schemas"]["Listing"] & {
+  images: ImageRecord[];
+  thumbnail_url?: string | null;
+};
+
+export class ApiHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiHttpError";
+  }
+}
 
 export type ListingSummary = components["schemas"]["ListingSummary"];
 export type ListingPage = components["schemas"]["ListingPage"];
@@ -50,7 +70,7 @@ async function authorizedFetch<T>(
     } catch {
       // ignore parse error
     }
-    throw new Error(message);
+    throw new ApiHttpError(res.status, message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -78,6 +98,16 @@ export function updateListing(
   });
 }
 
+export function getListing(id: string): Promise<ListingWithImages> {
+  return fetch(`${API_BASE_URL}/listings/${id}`).then(async (res) => {
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<ListingWithImages>;
+  });
+}
+
 export function deleteListing(id: string, token: string): Promise<void> {
   return authorizedFetch<void>(`/listings/${id}`, token, { method: "DELETE" });
 }
@@ -100,17 +130,69 @@ export function listSellerInquiries(
   return authorizedFetch(`/inquiries`, token);
 }
 
-export function uploadListingImage(
+export function createListing(
+  body: components["schemas"]["ListingCreate"],
+  token: string
+): Promise<Listing> {
+  return authorizedFetch<Listing>("/listings", token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export const MAX_LISTING_IMAGES = 8;
+export const MAX_LISTING_IMAGE_BYTES = 8 * 1024 * 1024;
+export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+// attachListingImage persists an already-uploaded Vercel Blob URL on the
+// listing. The backend validates ownership and that the URL is a Blob URL.
+export function attachListingImage(
+  listingId: string,
+  url: string,
+  contentType: string,
+  sizeBytes: number,
+  sortOrder: number,
+  token: string
+): Promise<ImageRecord> {
+  return authorizedFetch<ImageRecord>(`/listings/${listingId}/images`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      content_type: contentType,
+      size_bytes: sizeBytes,
+      sort_order: sortOrder,
+    }),
+  });
+}
+
+export function deleteListingImage(
+  listingId: string,
+  imageId: string,
+  token: string
+): Promise<void> {
+  return authorizedFetch<void>(`/listings/${listingId}/images/${imageId}`, token, {
+    method: "DELETE",
+  });
+}
+
+// uploadListingImageFile uploads one file directly to Vercel Blob via a
+// short-lived client token (issued by /api/blob/upload), then persists the
+// returned public URL on the listing (VER-376).
+export async function uploadListingImageFile(
   listingId: string,
   file: File,
+  sortOrder: number,
   token: string
-): Promise<{ id: string; url: string; sort_order: number }> {
-  const form = new FormData();
-  form.append("image", file);
-  return authorizedFetch(`/listings/${listingId}/images`, token, {
-    method: "POST",
-    body: form,
+): Promise<ImageRecord> {
+  const blob = await upload(`listings/${listingId}/${file.name}`, file, {
+    access: "public",
+    handleUploadUrl: "/api/blob/upload",
+    contentType: file.type,
+    clientPayload: JSON.stringify({ listingId }),
   });
+  return attachListingImage(listingId, blob.url, file.type, file.size, sortOrder, token);
 }
 
 export function getAIDraft(

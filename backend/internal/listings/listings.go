@@ -34,27 +34,37 @@ var ValidCategories = map[string]bool{
 	"furniture":     true,
 }
 
+// ImageRecord is one image attached to a listing.
+type ImageRecord struct {
+	ID        string `json:"id"`
+	URL       string `json:"url"`
+	SortOrder int    `json:"sort_order"`
+}
+
 // Summary is the slim listing representation returned by GET /api/v1/listings.
 // Matches the OpenAPI ListingSummary schema.
 type Summary struct {
-	ID        string    `json:"id"`
-	Category  string    `json:"category"`
-	Title     string    `json:"title"`
-	PriceLKR  *int64    `json:"price_lkr"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Category     string    `json:"category"`
+	Title        string    `json:"title"`
+	PriceLKR     *int64    `json:"price_lkr"`
+	ThumbnailURL *string   `json:"thumbnail_url,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Detail is the full listing representation returned by GET /api/v1/listings/{id}.
 // Matches the OpenAPI Listing schema.
 type Detail struct {
-	ID                string    `json:"id"`
-	Category          string    `json:"category"`
-	ContentLanguage   string    `json:"content_language"`
-	Title             string    `json:"title"`
-	Description       string    `json:"description"`
-	PriceLKR          *int64    `json:"price_lkr"`
-	TranslationSource *string   `json:"translation_source,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID                string        `json:"id"`
+	Category          string        `json:"category"`
+	ContentLanguage   string        `json:"content_language"`
+	Title             string        `json:"title"`
+	Description       string        `json:"description"`
+	PriceLKR          *int64        `json:"price_lkr"`
+	TranslationSource *string       `json:"translation_source,omitempty"`
+	ThumbnailURL      *string       `json:"thumbnail_url,omitempty"`
+	Images            []ImageRecord `json:"images"`
+	CreatedAt         time.Time     `json:"created_at"`
 }
 
 // Page is the paginated response for GET /api/v1/listings.
