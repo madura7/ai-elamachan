@@ -370,6 +370,14 @@ export interface components {
         /** @description A published listing. Title/description are returned resolved to the
          *     requested language (with machine-translation fallback per ADR 0001).
          *      */
+        /** @description One image attached to a listing. */
+        ListingImage: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uri */
+            url: string;
+            sort_order: number;
+        };
         Listing: {
             /** Format: uuid */
             id: string;
@@ -383,6 +391,13 @@ export interface components {
              * @enum {string|null}
              */
             translation_source?: "human" | "machine" | null;
+            /**
+             * Format: uri
+             * @description URL of the listing's primary thumbnail image, or null if none.
+             */
+            thumbnail_url?: string | null;
+            /** @description All active images for this listing, ordered by sort_order. */
+            images?: components["schemas"]["ListingImage"][];
             /** Format: date-time */
             created_at: string;
         };

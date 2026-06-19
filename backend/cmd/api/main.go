@@ -50,6 +50,19 @@ func main() {
 		h.RegisterRoutes(mux)
 	}
 
+	// Full-text search via Meilisearch (VER-225).
+	// Optional: when MEILI_URL is absent the endpoint returns 503 rather than
+	// crashing the whole service. This mirrors the graceful-degradation pattern
+	// used by auth and ai-assist.
+	var searchSvc *search.Service
+	if svc, err := search.NewFromEnv(); err != nil {
+		log.Printf("search: endpoint disabled: %v", err)
+		mux.HandleFunc("GET /api/v1/search", searchUnavailable)
+	} else {
+		searchSvc = svc
+		search.NewHandler(svc).Register(mux)
+	}
+
 	// Listings browse, create, and category taxonomy (VER-225, VER-289).
 	// Requires DATABASE_URL. Falls back to 503 stubs when DB is unavailable.
 	// POST /listings and GET /listings?mine=true require bearer auth.
@@ -63,6 +76,11 @@ func main() {
 		if bearer != nil {
 			h.SetAuth(bearer, verifyToken)
 		}
+		var onImageChange func(string, bool)
+		if searchSvc != nil {
+			onImageChange = searchSvc.UpdateHasImage
+		}
+		h.SetDeps(onImageChange)
 		h.RegisterRoutes(mux)
 	}
 
@@ -77,17 +95,6 @@ func main() {
 			h.SetBearer(bearer)
 		}
 		h.RegisterRoutes(mux)
-	}
-
-	// Full-text search via Meilisearch (VER-225).
-	// Optional: when MEILI_URL is absent the endpoint returns 503 rather than
-	// crashing the whole service. This mirrors the graceful-degradation pattern
-	// used by auth and ai-assist.
-	if svc, err := search.NewFromEnv(); err != nil {
-		log.Printf("search: endpoint disabled: %v", err)
-		mux.HandleFunc("GET /api/v1/search", searchUnavailable)
-	} else {
-		search.NewHandler(svc).Register(mux)
 	}
 
 	port := os.Getenv("BACKEND_PORT")

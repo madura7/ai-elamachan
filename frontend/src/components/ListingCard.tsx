@@ -14,6 +14,7 @@ export default function ListingCard({ item }: { item: ListingSummary }) {
             src={item.thumbnail_url}
             alt={item.title}
             className="h-full w-full object-cover"
+            loading="lazy"
           />
         ) : (
           <span aria-hidden>{cat.icon}</span>

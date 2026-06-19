@@ -47,6 +47,17 @@ func NewFromEnv() (*Service, error) {
 	}, nil
 }
 
+// UpdateHasImage performs a best-effort partial update of the has_image field
+// in Meilisearch for the given listing. No-op when s is nil (search disabled).
+func (s *Service) UpdateHasImage(listingID string, hasImage bool) {
+	if s == nil {
+		return
+	}
+	_, _ = s.index.UpdateDocuments([]map[string]interface{}{
+		{"id": listingID, "has_image": hasImage},
+	}, "id")
+}
+
 // Search runs a full-text query against the listings index and returns a page
 // of results. It handles both seed-format documents (flat title/category_slug)
 // and per-language documents (title_en/category fields) by delegating title and

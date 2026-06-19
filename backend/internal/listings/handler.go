@@ -26,10 +26,11 @@ const (
 
 // Handler serves listing and category endpoints.
 type Handler struct {
-	db          *sql.DB
-	policy      PostingPolicy
-	bearer      func(http.Handler) http.Handler
-	verifyToken func(ctx context.Context, token string) (string, error)
+	db              *sql.DB
+	policy          PostingPolicy
+	bearer          func(http.Handler) http.Handler
+	verifyToken     func(ctx context.Context, token string) (string, error)
+	onImageChange   func(listingID string, hasImage bool) // best-effort search update
 }
 
 // NewHandlerFromEnv constructs a Handler from DATABASE_URL.
@@ -51,6 +52,13 @@ func NewHandlerFromEnv() (*Handler, error) {
 	}, nil
 }
 
+// SetDeps wires a best-effort search-update callback (onImageChange), invoked
+// when a listing's images change so the search index can refresh has_image.
+// May be nil — handlers degrade gracefully when absent.
+func (h *Handler) SetDeps(onImageChange func(listingID string, hasImage bool)) {
+	h.onImageChange = onImageChange
+}
+
 // SetAuth wires in bearer middleware (for POST /listings) and a token verifier
 // (for optional auth on GET /listings?mine=true).
 func (h *Handler) SetAuth(
@@ -70,14 +78,20 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	post := http.Handler(http.HandlerFunc(h.createListing))
 	put := http.Handler(http.HandlerFunc(h.updateListing))
 	del := http.Handler(http.HandlerFunc(h.deleteListing))
+	imgAttach := http.Handler(http.HandlerFunc(h.imageAttach))
+	imgDel := http.Handler(http.HandlerFunc(h.imageDelete))
 	if h.bearer != nil {
 		post = h.bearer(post)
 		put = h.bearer(put)
 		del = h.bearer(del)
+		imgAttach = h.bearer(imgAttach)
+		imgDel = h.bearer(imgDel)
 	}
 	mux.Handle("POST /api/v1/listings", post)
 	mux.Handle("PUT /api/v1/listings/{id}", put)
 	mux.Handle("DELETE /api/v1/listings/{id}", del)
+	mux.Handle("POST /api/v1/listings/{id}/images", imgAttach)
+	mux.Handle("DELETE /api/v1/listings/{id}/images/{imageId}", imgDel)
 }
 
 // listListings serves GET /api/v1/listings with optional lang, category,
@@ -159,6 +173,7 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Data query: resolve title using lang → 'en' → any fallback (ADR 0001).
+	// Cover thumbnail is fetched via a correlated subquery using idx_listing_images_listing_status.
 	dataQuery := fmt.Sprintf(`
 		SELECT l.id,
 		       c.slug,
@@ -169,7 +184,10 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		         ''
 		       ) AS title,
 		       l.price_cents,
-		       l.created_at
+		       l.created_at,
+		       (SELECT li.url FROM listing_images li
+		        WHERE li.listing_id = l.id AND li.status = 'active'
+		        ORDER BY li.sort_order ASC LIMIT 1) AS thumbnail_url
 		FROM listings l
 		JOIN categories c ON c.id = l.category_id
 		WHERE l.status = 'active'`)
@@ -201,7 +219,8 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s Summary
 		var priceCents sql.NullInt64
-		if err := rows.Scan(&s.ID, &s.Category, &s.Title, &priceCents, &s.CreatedAt); err != nil {
+		var thumbnailURL sql.NullString
+		if err := rows.Scan(&s.ID, &s.Category, &s.Title, &priceCents, &s.CreatedAt, &thumbnailURL); err != nil {
 			log.Printf("listings: scan row: %v", err)
 			apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not read listing")
 			return
@@ -209,6 +228,9 @@ func (h *Handler) listListings(w http.ResponseWriter, r *http.Request) {
 		if priceCents.Valid {
 			lkr := priceCents.Int64 / 100
 			s.PriceLKR = &lkr
+		}
+		if thumbnailURL.Valid {
+			s.ThumbnailURL = &thumbnailURL.String
 		}
 		items = append(items, s)
 	}
@@ -291,6 +313,37 @@ func (h *Handler) getListing(w http.ResponseWriter, r *http.Request) {
 	}
 	if translationSource.Valid {
 		d.TranslationSource = &translationSource.String
+	}
+
+	imgRows, err := h.db.QueryContext(r.Context(), `
+		SELECT id, url, sort_order
+		FROM listing_images
+		WHERE listing_id = $1 AND status = 'active'
+		ORDER BY sort_order ASC
+	`, id)
+	if err != nil {
+		log.Printf("listings: get images: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not fetch images")
+		return
+	}
+	defer imgRows.Close()
+	d.Images = make([]ImageRecord, 0)
+	for imgRows.Next() {
+		var img ImageRecord
+		if err := imgRows.Scan(&img.ID, &img.URL, &img.SortOrder); err != nil {
+			log.Printf("listings: scan image: %v", err)
+			apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not read images")
+			return
+		}
+		d.Images = append(d.Images, img)
+	}
+	if err := imgRows.Err(); err != nil {
+		log.Printf("listings: images rows error: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not read images")
+		return
+	}
+	if len(d.Images) > 0 {
+		d.ThumbnailURL = &d.Images[0].URL
 	}
 
 	writeJSON(w, http.StatusOK, d)
