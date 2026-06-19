@@ -162,9 +162,6 @@ export default function ListingDetailPage() {
                   💬 Message seller
                 </Button>
               )}
-              <Button href="/auth" variant="secondary" block>
-                💰 Make an offer
-              </Button>
             </div>
           </div>
 
