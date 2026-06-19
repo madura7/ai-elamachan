@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"time"
+	"net/url"
+	"strings"
 
 	"github.com/madura7/ai-elamachan/backend/internal/apierr"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
@@ -16,7 +17,11 @@ import (
 const (
 	maxImages     = 8
 	maxImageBytes = 8 * 1024 * 1024 // 8 MB
-	presignTTL    = 15 * time.Minute
+	// blobHostSuffix is the public host all Vercel Blob URLs share. Uploaded
+	// images are persisted client-side via @vercel/blob and only their public
+	// URL reaches us — we accept a URL only when it is served from this host,
+	// so callers cannot attach arbitrary external URLs to a listing.
+	blobHostSuffix = ".public.blob.vercel-storage.com"
 )
 
 var allowedContentTypes = map[string]bool{
@@ -25,21 +30,14 @@ var allowedContentTypes = map[string]bool{
 	"image/webp": true,
 }
 
-type presignRequest struct {
+// attachRequest is the body of POST /api/v1/listings/{id}/images. The browser
+// uploads directly to Vercel Blob (see frontend /api/blob/upload) and posts the
+// resulting public URL here for persistence.
+type attachRequest struct {
+	URL         string `json:"url"`
 	ContentType string `json:"content_type"`
 	SizeBytes   int64  `json:"size_bytes"`
-}
-
-type presignResponse struct {
-	ImageID   string    `json:"image_id"`
-	ObjectKey string    `json:"object_key"`
-	UploadURL string    `json:"upload_url"`
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
-type confirmRequest struct {
-	ImageID   string `json:"image_id"`
-	SortOrder *int   `json:"sort_order,omitempty"`
+	SortOrder   *int   `json:"sort_order,omitempty"`
 }
 
 // fetchListingOwner returns the user_id of the listing. Returns sql.ErrNoRows
@@ -53,14 +51,27 @@ func (h *Handler) fetchListingOwner(ctx context.Context, listingID string) (stri
 	return ownerID, err
 }
 
-// imagePresign handles POST /api/v1/listings/{id}/images:presign.
-func (h *Handler) imagePresign(w http.ResponseWriter, r *http.Request) {
-	if h.blob == nil {
-		apierr.Write(w, http.StatusServiceUnavailable, "images_unavailable",
-			"image upload is not configured on this server (check BLOB_* env vars)")
-		return
+// blobObjectKey validates that rawURL is an https Vercel Blob URL and returns
+// the object key (path without leading slash). Returns ok=false when the URL is
+// not a well-formed Blob URL.
+func blobObjectKey(rawURL string) (key string, ok bool) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", false
 	}
+	if !strings.HasSuffix(u.Host, blobHostSuffix) {
+		return "", false
+	}
+	key = strings.TrimPrefix(u.Path, "/")
+	if key == "" {
+		return "", false
+	}
+	return key, true
+}
 
+// imageAttach handles POST /api/v1/listings/{id}/images. It persists an
+// already-uploaded Vercel Blob URL as an active image on the listing.
+func (h *Handler) imageAttach(w http.ResponseWriter, r *http.Request) {
 	callerID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
@@ -75,7 +86,7 @@ func (h *Handler) imagePresign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		log.Printf("images presign: owner lookup: %v", err)
+		log.Printf("images attach: owner lookup: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not verify listing")
 		return
 	}
@@ -89,7 +100,7 @@ func (h *Handler) imagePresign(w http.ResponseWriter, r *http.Request) {
 		`SELECT COUNT(*) FROM listing_images WHERE listing_id = $1 AND status = 'active'`,
 		listingID,
 	).Scan(&count); err != nil {
-		log.Printf("images presign: count: %v", err)
+		log.Printf("images attach: count: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not check image count")
 		return
 	}
@@ -99,7 +110,7 @@ func (h *Handler) imagePresign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req presignRequest
+	var req attachRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		apierr.Write(w, http.StatusBadRequest, "invalid_body", "could not parse request body")
 		return
@@ -114,125 +125,27 @@ func (h *Handler) imagePresign(w http.ResponseWriter, r *http.Request) {
 			fmt.Sprintf("size_bytes must be between 1 and %d", maxImageBytes))
 		return
 	}
-
-	var imageID string
-	if err := h.db.QueryRowContext(r.Context(), `SELECT gen_random_uuid()`).Scan(&imageID); err != nil {
-		log.Printf("images presign: gen uuid: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not generate image id")
-		return
-	}
-
-	objectKey := fmt.Sprintf("listings/%s/%s", listingID, imageID)
-
-	_, err = h.db.ExecContext(r.Context(), `
-		INSERT INTO listing_images (id, listing_id, object_key, sort_order, status, content_type, size_bytes)
-		VALUES ($1, $2, $3, $4, 'pending', $5, $6)
-	`, imageID, listingID, objectKey, count, req.ContentType, req.SizeBytes)
-	if err != nil {
-		log.Printf("images presign: insert pending: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not create image record")
-		return
-	}
-
-	result, err := h.blob.PresignPut(r.Context(), objectKey, req.ContentType, req.SizeBytes, presignTTL)
-	if err != nil {
-		log.Printf("images presign: presign put: %v", err)
-		_, _ = h.db.ExecContext(r.Context(), `DELETE FROM listing_images WHERE id = $1`, imageID)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not generate upload URL")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, presignResponse{
-		ImageID:   imageID,
-		ObjectKey: objectKey,
-		UploadURL: result.UploadURL,
-		ExpiresAt: result.ExpiresAt,
-	})
-}
-
-// imageConfirm handles POST /api/v1/listings/{id}/images:confirm.
-func (h *Handler) imageConfirm(w http.ResponseWriter, r *http.Request) {
-	if h.blob == nil {
-		apierr.Write(w, http.StatusServiceUnavailable, "images_unavailable",
-			"image upload is not configured on this server (check BLOB_* env vars)")
-		return
-	}
-
-	callerID, ok := auth.UserIDFromContext(r.Context())
+	objectKey, ok := blobObjectKey(req.URL)
 	if !ok {
-		apierr.Write(w, http.StatusUnauthorized, "unauthorized", "bearer token required")
+		apierr.Write(w, http.StatusBadRequest, "invalid_url",
+			"url must be a public Vercel Blob URL")
 		return
 	}
 
-	listingID := r.PathValue("id")
-
-	ownerID, err := h.fetchListingOwner(r.Context(), listingID)
-	if err == sql.ErrNoRows {
-		apierr.Write(w, http.StatusNotFound, "not_found", "listing not found")
-		return
-	}
-	if err != nil {
-		log.Printf("images confirm: owner lookup: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not verify listing")
-		return
-	}
-	if ownerID != callerID {
-		apierr.Write(w, http.StatusForbidden, "forbidden", "not the listing owner")
-		return
-	}
-
-	var req confirmRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		apierr.Write(w, http.StatusBadRequest, "invalid_body", "could not parse request body")
-		return
-	}
-	if req.ImageID == "" {
-		apierr.Write(w, http.StatusBadRequest, "missing_image_id", "image_id is required")
-		return
-	}
-
-	var objectKey string
-	var sortOrder int
-	err = h.db.QueryRowContext(r.Context(), `
-		SELECT li.object_key, li.sort_order
-		FROM listing_images li
-		JOIN listings l ON l.id = li.listing_id
-		WHERE li.id = $1 AND li.listing_id = $2 AND li.status = 'pending' AND l.user_id = $3
-	`, req.ImageID, listingID, callerID).Scan(&objectKey, &sortOrder)
-	if err == sql.ErrNoRows {
-		apierr.Write(w, http.StatusNotFound, "not_found", "pending image not found")
-		return
-	}
-	if err != nil {
-		log.Printf("images confirm: lookup: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not look up image")
-		return
-	}
-
-	exists, err := h.blob.HeadObject(r.Context(), objectKey)
-	if err != nil {
-		log.Printf("images confirm: head object: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not verify upload")
-		return
-	}
-	if !exists {
-		apierr.Write(w, http.StatusUnprocessableEntity, "upload_not_found",
-			"object not found in storage; upload the file before confirming")
-		return
-	}
-
+	sortOrder := count
 	if req.SortOrder != nil {
 		sortOrder = *req.SortOrder
 	}
 
-	publicURL := h.blob.PublicURL(objectKey)
-
-	if _, err := h.db.ExecContext(r.Context(), `
-		UPDATE listing_images SET status = 'active', sort_order = $1, url = $2
-		WHERE id = $3
-	`, sortOrder, publicURL, req.ImageID); err != nil {
-		log.Printf("images confirm: update: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not activate image")
+	var imageID string
+	err = h.db.QueryRowContext(r.Context(), `
+		INSERT INTO listing_images (id, listing_id, object_key, sort_order, status, content_type, size_bytes, url)
+		VALUES (gen_random_uuid(), $1, $2, $3, 'active', $4, $5, $6)
+		RETURNING id
+	`, listingID, objectKey, sortOrder, req.ContentType, req.SizeBytes, req.URL).Scan(&imageID)
+	if err != nil {
+		log.Printf("images attach: insert: %v", err)
+		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not save image")
 		return
 	}
 
@@ -241,13 +154,15 @@ func (h *Handler) imageConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, ImageRecord{
-		ID:        req.ImageID,
-		URL:       publicURL,
+		ID:        imageID,
+		URL:       req.URL,
 		SortOrder: sortOrder,
 	})
 }
 
-// imageDelete handles DELETE /api/v1/listings/{id}/images/{imageId}.
+// imageDelete handles DELETE /api/v1/listings/{id}/images/{imageId}. The Blob
+// object itself is left in storage (deletion needs the write token, which lives
+// only in the frontend env); the listing simply stops referencing it.
 func (h *Handler) imageDelete(w http.ResponseWriter, r *http.Request) {
 	callerID, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
@@ -273,33 +188,17 @@ func (h *Handler) imageDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var objectKey string
-	err = h.db.QueryRowContext(r.Context(),
-		`SELECT object_key FROM listing_images WHERE id = $1 AND listing_id = $2`,
-		imageID, listingID,
-	).Scan(&objectKey)
-	if err == sql.ErrNoRows {
-		apierr.Write(w, http.StatusNotFound, "not_found", "image not found")
-		return
-	}
-	if err != nil {
-		log.Printf("images delete: lookup: %v", err)
-		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not look up image")
-		return
-	}
-
-	if _, err := h.db.ExecContext(r.Context(),
+	res, err := h.db.ExecContext(r.Context(),
 		`DELETE FROM listing_images WHERE id = $1 AND listing_id = $2`, imageID, listingID,
-	); err != nil {
+	)
+	if err != nil {
 		log.Printf("images delete: row: %v", err)
 		apierr.Write(w, http.StatusInternalServerError, "internal_error", "could not delete image")
 		return
 	}
-
-	if h.blob != nil {
-		if err := h.blob.DeleteObject(r.Context(), objectKey); err != nil {
-			log.Printf("images delete: storage object %q (best-effort): %v", objectKey, err)
-		}
+	if n, _ := res.RowsAffected(); n == 0 {
+		apierr.Write(w, http.StatusNotFound, "not_found", "image not found")
+		return
 	}
 
 	// Update search has_image when no active images remain (best-effort).

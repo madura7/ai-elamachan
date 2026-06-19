@@ -10,7 +10,6 @@ import (
 
 	"github.com/madura7/ai-elamachan/backend/internal/aiassist"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
-	"github.com/madura7/ai-elamachan/backend/internal/blob"
 	"github.com/madura7/ai-elamachan/backend/internal/health"
 	"github.com/madura7/ai-elamachan/backend/internal/inquiries"
 	"github.com/madura7/ai-elamachan/backend/internal/listings"
@@ -51,15 +50,6 @@ func main() {
 		h.RegisterRoutes(mux)
 	}
 
-	// Object storage for listing images (VER-365/VER-368).
-	// Optional: when BLOB_ENDPOINT is absent, image upload returns 503.
-	blobStore, err := blob.NewFromEnv()
-	if err != nil {
-		log.Printf("blob: image upload disabled: %v", err)
-	} else if blobStore == nil {
-		log.Printf("blob: image upload disabled (BLOB_ENDPOINT not set)")
-	}
-
 	// Full-text search via Meilisearch (VER-225).
 	// Optional: when MEILI_URL is absent the endpoint returns 503 rather than
 	// crashing the whole service. This mirrors the graceful-degradation pattern
@@ -90,7 +80,7 @@ func main() {
 		if searchSvc != nil {
 			onImageChange = searchSvc.UpdateHasImage
 		}
-		h.SetDeps(blobStore, onImageChange)
+		h.SetDeps(onImageChange)
 		h.RegisterRoutes(mux)
 	}
 

@@ -3,6 +3,7 @@
 // interfaces allowed. When these endpoints are added to openapi.yaml, delete
 // the corresponding helper and switch callers to `api.*` directly.
 
+import { upload } from "@vercel/blob/client";
 import { api, API_BASE_URL } from "./client";
 import type { components } from "./schema";
 
@@ -175,45 +176,26 @@ export const MAX_LISTING_IMAGES = 8;
 export const MAX_LISTING_IMAGE_BYTES = 8 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 
-type PresignResponse = {
-  image_id: string;
-  object_key: string;
-  upload_url: string;
-  expires_at: string;
-};
-
-export function presignListingImage(
+// attachListingImage persists an already-uploaded Vercel Blob URL on the
+// listing. The backend validates ownership and that the URL is a Blob URL.
+export function attachListingImage(
   listingId: string,
+  url: string,
   contentType: string,
   sizeBytes: number,
-  token: string
-): Promise<PresignResponse> {
-  return authorizedFetch<PresignResponse>(
-    `/listings/${listingId}/images:presign`,
-    token,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content_type: contentType, size_bytes: sizeBytes }),
-    }
-  );
-}
-
-export function confirmListingImage(
-  listingId: string,
-  imageId: string,
   sortOrder: number,
   token: string
 ): Promise<ImageRecord> {
-  return authorizedFetch<ImageRecord>(
-    `/listings/${listingId}/images:confirm`,
-    token,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ image_id: imageId, sort_order: sortOrder }),
-    }
-  );
+  return authorizedFetch<ImageRecord>(`/listings/${listingId}/images`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url,
+      content_type: contentType,
+      size_bytes: sizeBytes,
+      sort_order: sortOrder,
+    }),
+  });
 }
 
 export function deleteListingImage(
@@ -226,23 +208,22 @@ export function deleteListingImage(
   });
 }
 
-// uploadListingImageFile orchestrates the presign → PUT → confirm flow for one file.
+// uploadListingImageFile uploads one file directly to Vercel Blob via a
+// short-lived client token (issued by /api/blob/upload), then persists the
+// returned public URL on the listing (VER-376).
 export async function uploadListingImageFile(
   listingId: string,
   file: File,
   sortOrder: number,
   token: string
 ): Promise<ImageRecord> {
-  const presign = await presignListingImage(listingId, file.type, file.size, token);
-  const putRes = await fetch(presign.upload_url, {
-    method: "PUT",
-    headers: { "Content-Type": file.type },
-    body: file,
+  const blob = await upload(`listings/${listingId}/${file.name}`, file, {
+    access: "public",
+    handleUploadUrl: "/api/blob/upload",
+    contentType: file.type,
+    clientPayload: JSON.stringify({ listingId }),
   });
-  if (!putRes.ok) {
-    throw new ApiHttpError(putRes.status, `Upload PUT failed: HTTP ${putRes.status}`);
-  }
-  return confirmListingImage(listingId, presign.image_id, sortOrder, token);
+  return attachListingImage(listingId, blob.url, file.type, file.size, sortOrder, token);
 }
 
 export function getAIDraft(

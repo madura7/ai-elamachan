@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@vercel/blob": "^2.4.1",
     "next": "15.5.19",
     "openapi-fetch": "0.13.4",
     "react": "^19.0.0",

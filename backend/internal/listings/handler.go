@@ -14,7 +14,6 @@ import (
 
 	"github.com/madura7/ai-elamachan/backend/internal/apierr"
 	"github.com/madura7/ai-elamachan/backend/internal/auth"
-	"github.com/madura7/ai-elamachan/backend/internal/blob"
 
 	// pgx registers the "pgx" driver name with database/sql.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -31,7 +30,6 @@ type Handler struct {
 	policy          PostingPolicy
 	bearer          func(http.Handler) http.Handler
 	verifyToken     func(ctx context.Context, token string) (string, error)
-	blob            blob.BlobStore
 	onImageChange   func(listingID string, hasImage bool) // best-effort search update
 }
 
@@ -54,10 +52,10 @@ func NewHandlerFromEnv() (*Handler, error) {
 	}, nil
 }
 
-// SetDeps wires optional image-upload (b) and a search-update callback (onImageChange).
-// Both may be nil — handlers degrade gracefully when absent.
-func (h *Handler) SetDeps(b blob.BlobStore, onImageChange func(listingID string, hasImage bool)) {
-	h.blob = b
+// SetDeps wires a best-effort search-update callback (onImageChange), invoked
+// when a listing's images change so the search index can refresh has_image.
+// May be nil — handlers degrade gracefully when absent.
+func (h *Handler) SetDeps(onImageChange func(listingID string, hasImage bool)) {
 	h.onImageChange = onImageChange
 }
 
@@ -80,22 +78,19 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	post := http.Handler(http.HandlerFunc(h.createListing))
 	put := http.Handler(http.HandlerFunc(h.updateListing))
 	del := http.Handler(http.HandlerFunc(h.deleteListing))
-	presign := http.Handler(http.HandlerFunc(h.imagePresign))
-	confirm := http.Handler(http.HandlerFunc(h.imageConfirm))
+	imgAttach := http.Handler(http.HandlerFunc(h.imageAttach))
 	imgDel := http.Handler(http.HandlerFunc(h.imageDelete))
 	if h.bearer != nil {
 		post = h.bearer(post)
 		put = h.bearer(put)
 		del = h.bearer(del)
-		presign = h.bearer(presign)
-		confirm = h.bearer(confirm)
+		imgAttach = h.bearer(imgAttach)
 		imgDel = h.bearer(imgDel)
 	}
 	mux.Handle("POST /api/v1/listings", post)
 	mux.Handle("PUT /api/v1/listings/{id}", put)
 	mux.Handle("DELETE /api/v1/listings/{id}", del)
-	mux.Handle("POST /api/v1/listings/{id}/images:presign", presign)
-	mux.Handle("POST /api/v1/listings/{id}/images:confirm", confirm)
+	mux.Handle("POST /api/v1/listings/{id}/images", imgAttach)
 	mux.Handle("DELETE /api/v1/listings/{id}/images/{imageId}", imgDel)
 }
 
