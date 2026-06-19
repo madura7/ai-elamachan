@@ -435,6 +435,125 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /inquiries/{inquiryId}:
+    get:
+      tags: [inquiries]
+      operationId: getInquiryThread
+      summary: Get full inquiry thread (header + messages)
+      description: |
+        Returns the full conversation thread for an inquiry. Participant-only
+        (buyer or seller). When the seller opens a `new` inquiry the status
+        transitions to `read`; it is never downgraded from `replied`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: inquiryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Thread with messages oldest-first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InquiryThread"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /inquiries/{inquiryId}/messages:
+    post:
+      tags: [inquiries]
+      operationId: postInquiryMessage
+      summary: Reply in an inquiry thread
+      description: |
+        Adds a new message to an inquiry thread. Participant-only; `sender_role`
+        is derived from the authenticated user. A seller reply transitions the
+        inquiry status to `replied`. Rate limited: 5/min + 60/hr per user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: inquiryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageCreate"
+      responses:
+        "201":
+          description: Message created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InquiryMessage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Validation failed (blank body or body too long).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /inquiries/{inquiryId}/report:
+    post:
+      tags: [inquiries]
+      operationId: reportInquiry
+      summary: Report an inquiry for abuse
+      description: |
+        Submits an abuse report for an inquiry. Participant-only. Returns 204
+        on success. Rate limited: 5/min + 60/hr per user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: inquiryId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InquiryReportCreate"
+      responses:
+        "204":
+          description: Report recorded.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Validation failed (blank or too-long reason).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
   /search:
     get:
       tags: [search]
@@ -890,4 +1009,79 @@ components:
         created_at:
           type: string
           format: date-time
+      additionalProperties: false
+
+    InquiryMessage:
+      type: object
+      description: A single message turn in an inquiry thread (buyer or seller).
+      required: [id, inquiry_id, sender_role, body, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        inquiry_id:
+          type: string
+          format: uuid
+        sender_role:
+          type: string
+          enum: [buyer, seller]
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    InquiryThread:
+      type: object
+      description: |
+        Full thread for an inquiry: header fields (same as SellerInquiry) plus
+        the ordered list of messages. Returned by GET /inquiries/{inquiryId}.
+      required: [id, listing_id, listing_title, buyer_label, status, created_at, messages]
+      properties:
+        id:
+          type: string
+          format: uuid
+        listing_id:
+          type: string
+          format: uuid
+        listing_title:
+          type: string
+        buyer_label:
+          type: string
+          description: Buyer display name if known, else a stable pseudonym.
+        status:
+          type: string
+          enum: [new, read, replied]
+        created_at:
+          type: string
+          format: date-time
+        messages:
+          type: array
+          description: Messages in chronological order (oldest first).
+          items:
+            $ref: "#/components/schemas/InquiryMessage"
+      additionalProperties: false
+
+    MessageCreate:
+      type: object
+      description: Request body for POST /inquiries/{inquiryId}/messages.
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: The reply text (1–1000 chars, non-blank).
+      additionalProperties: false
+
+    InquiryReportCreate:
+      type: object
+      description: Request body for POST /inquiries/{inquiryId}/report.
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Short description of the reported content (≤500 chars).
       additionalProperties: false

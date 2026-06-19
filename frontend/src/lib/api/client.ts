@@ -29,5 +29,7 @@ export type User = components["schemas"]["User"];
 export type InquiryCreate = components["schemas"]["InquiryCreate"];
 export type Inquiry = components["schemas"]["Inquiry"];
 export type SellerInquiry = components["schemas"]["SellerInquiry"];
+export type InquiryMessage = components["schemas"]["InquiryMessage"];
+export type InquiryThread = components["schemas"]["InquiryThread"];
 
 export type { paths, components } from "./schema";

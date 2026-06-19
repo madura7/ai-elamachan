@@ -130,6 +130,37 @@ export function listSellerInquiries(
   return authorizedFetch(`/inquiries`, token);
 }
 
+export function getInquiryThread(
+  inquiryId: string,
+  token: string
+): Promise<components["schemas"]["InquiryThread"]> {
+  return authorizedFetch(`/inquiries/${inquiryId}`, token);
+}
+
+export function replyToInquiry(
+  inquiryId: string,
+  body: string,
+  token: string
+): Promise<components["schemas"]["InquiryMessage"]> {
+  return authorizedFetch(`/inquiries/${inquiryId}/messages`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
+export function reportInquiry(
+  inquiryId: string,
+  reason: string,
+  token: string
+): Promise<void> {
+  return authorizedFetch(`/inquiries/${inquiryId}/report`, token, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export function createListing(
   body: components["schemas"]["ListingCreate"],
   token: string
