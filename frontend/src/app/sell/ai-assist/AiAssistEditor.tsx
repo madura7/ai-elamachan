@@ -19,10 +19,19 @@ import {
   resizeImage,
 } from "@/lib/image";
 import { getToken } from "@/lib/auth";
-import { createListing, ApiHttpError } from "@/lib/api/helpers";
+import {
+  createListing,
+  uploadListingImageFile,
+  ApiHttpError,
+  ALLOWED_IMAGE_TYPES,
+  MAX_LISTING_IMAGE_BYTES,
+  MAX_LISTING_IMAGES,
+  type ImageRecord,
+} from "@/lib/api/helpers";
 import type { CategorySlug } from "@/lib/api/client";
 
 type Status = "idle" | "resizing" | "streaming" | "done" | "error";
+type UploadStatus = "idle" | "uploading" | "done" | "unavailable";
 
 const LANG_LABEL_KEY: Record<Lang, "languageEn" | "languageSi" | "languageTa"> =
   {
@@ -49,6 +58,12 @@ export function AiAssistEditor({ locale }: Props) {
   const [price, setPrice] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [createdListingId, setCreatedListingId] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
+  const [uploadedImages, setUploadedImages] = useState<ImageRecord[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
 
@@ -106,6 +121,65 @@ export function AiAssistEditor({ locale }: Props) {
     setStatus((s) => (s === "streaming" || s === "resizing" ? "idle" : s));
   }, []);
 
+  const onImageFilesChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setImageError(null);
+      const selected = Array.from(e.target.files ?? []);
+      if (selected.length === 0) return;
+      for (const f of selected) {
+        if (!ALLOWED_IMAGE_TYPES.includes(f.type as typeof ALLOWED_IMAGE_TYPES[number])) {
+          setImageError(t(locale, "listingPhotoTypeBad"));
+          e.target.value = "";
+          return;
+        }
+        if (f.size > MAX_LISTING_IMAGE_BYTES) {
+          setImageError(t(locale, "listingPhotoTooBig"));
+          e.target.value = "";
+          return;
+        }
+      }
+      setImageFiles((prev) => {
+        const combined = [...prev, ...selected].slice(0, MAX_LISTING_IMAGES);
+        if (prev.length + selected.length > MAX_LISTING_IMAGES) {
+          setImageError(t(locale, "listingPhotoTooMany"));
+        }
+        return combined;
+      });
+      e.target.value = "";
+    },
+    [locale]
+  );
+
+  const removeImageFile = useCallback((idx: number) => {
+    setImageFiles((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const handleUploadImages = useCallback(async (listingId: string, token: string) => {
+    if (imageFiles.length === 0) {
+      router.push("/dashboard");
+      return;
+    }
+    setUploadStatus("uploading");
+    setUploadProgress({ done: 0, total: imageFiles.length });
+    const results: ImageRecord[] = [];
+    for (let i = 0; i < imageFiles.length; i++) {
+      try {
+        const img = await uploadListingImageFile(listingId, imageFiles[i], i, token);
+        results.push(img);
+      } catch (err) {
+        if (err instanceof ApiHttpError && err.status === 503) {
+          setUploadStatus("unavailable");
+          return;
+        }
+        // Non-fatal: log and continue
+        console.error(`Image ${i + 1} upload failed`, err);
+      }
+      setUploadProgress({ done: i + 1, total: imageFiles.length });
+    }
+    setUploadedImages(results);
+    setUploadStatus("done");
+  }, [imageFiles, router]);
+
   const handleSubmit = useCallback(async () => {
     setSubmitError(null);
     const token = getToken();
@@ -116,7 +190,7 @@ export function AiAssistEditor({ locale }: Props) {
     const priceParsed = price.trim() ? parseFloat(price) : undefined;
     setSubmitting(true);
     try {
-      await createListing(
+      const listing = await createListing(
         {
           category: draft.category_suggestion as CategorySlug,
           content_language: locale as Lang,
@@ -128,7 +202,8 @@ export function AiAssistEditor({ locale }: Props) {
         },
         token
       );
-      router.push("/dashboard");
+      setCreatedListingId(listing.id);
+      await handleUploadImages(listing.id, token);
     } catch (err) {
       if (err instanceof ApiHttpError && err.status === 401) {
         router.push("/auth");
@@ -142,7 +217,7 @@ export function AiAssistEditor({ locale }: Props) {
     } finally {
       setSubmitting(false);
     }
-  }, [draft, locale, price, router]);
+  }, [draft, locale, price, router, handleUploadImages]);
 
   const generate = useCallback(async () => {
     setFormError(null);
@@ -399,19 +474,97 @@ export function AiAssistEditor({ locale }: Props) {
             />
           </div>
 
+          {/* Image picker — shown before submission */}
+          {!createdListingId && (
+            <div>
+              <label className="text-caption font-medium text-muted block mb-1">
+                {t(locale, "listingPhotos")}
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                disabled={busy}
+                onChange={onImageFilesChange}
+                className="text-small text-ink-2"
+              />
+              <p className="text-caption text-muted mt-1">{t(locale, "listingPhotosHint")}</p>
+              {imageError && <p className="text-xs text-red-500 mt-1">{imageError}</p>}
+              {imageFiles.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {imageFiles.map((f, i) => (
+                    <div key={i} className="relative">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={URL.createObjectURL(f)}
+                        alt={f.name}
+                        className="h-16 w-16 object-cover rounded-md border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImageFile(i)}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-ink text-white rounded-full text-xs leading-none flex items-center justify-center hover:bg-red-600"
+                        aria-label={`Remove image ${i + 1}`}
+                        disabled={busy}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {submitError && <p className="text-xs text-red-500">{submitError}</p>}
 
-          <div>
-            <Button
-              type="button"
-              variant="primary"
-              disabled={busy}
-              onClick={handleSubmit}
-            >
-              {submitting ? t(locale, "submittingListing") : t(locale, "createListing")}
-            </Button>
-            <p className="text-caption text-muted mt-1">{t(locale, "createListingHint")}</p>
-          </div>
+          {/* Upload progress UI — shown after listing is created */}
+          {createdListingId && uploadStatus === "uploading" && (
+            <div className="text-small text-muted">
+              {t(locale, "uploadingPhotos")} {uploadProgress.done}/{uploadProgress.total}
+            </div>
+          )}
+          {createdListingId && uploadStatus === "unavailable" && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+              <p className="text-small text-yellow-800">{t(locale, "imagesUnavailable")}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => router.push("/dashboard")}
+                className="mt-2"
+              >
+                {t(locale, "uploadPhotosSkip")}
+              </Button>
+            </div>
+          )}
+          {createdListingId && uploadStatus === "done" && (
+            <div className="space-y-2">
+              {uploadedImages.length > 0 && (
+                <p className="text-small text-green-700">{t(locale, "uploadPhotosSuccess")}</p>
+              )}
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => router.push("/dashboard")}
+              >
+                {t(locale, "uploadPhotosDone")}
+              </Button>
+            </div>
+          )}
+
+          {!createdListingId && (
+            <div>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={busy}
+                onClick={handleSubmit}
+              >
+                {submitting ? t(locale, "submittingListing") : t(locale, "createListing")}
+              </Button>
+              <p className="text-caption text-muted mt-1">{t(locale, "createListingHint")}</p>
+            </div>
+          )}
         </section>
       )}
     </div>
